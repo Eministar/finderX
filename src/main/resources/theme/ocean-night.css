@@ -1,8 +1,7 @@
 /*
-fx-theme-name: Dark Glass
+fx-theme-name: Ocean Night
 fx-theme-author: FinderX Team
-fx-theme-description: Official default FinderX dark theme.
-fx-theme-official: true
+fx-theme-description: Cool blue accents with a deep ocean glass style.
 */
 
 .root {
@@ -10,9 +9,9 @@ fx-theme-official: true
 }
 
 .window-shell {
-    -fx-background-color: linear-gradient(to bottom, #0e0e0e, #111111);
+    -fx-background-color: linear-gradient(to bottom, #09131f, #0c1724);
     -fx-background-radius: 13;
-    -fx-border-color: #2a2a2a;
+    -fx-border-color: #2c4462;
     -fx-border-radius: 13;
 }
 
@@ -21,35 +20,35 @@ fx-theme-official: true
 }
 
 .window-bar {
-    -fx-background-color: linear-gradient(to bottom, #1b1b1b, #151515);
+    -fx-background-color: linear-gradient(to bottom, #142337, #112034);
     -fx-background-radius: 12;
-    -fx-border-color: #2e2e2e;
+    -fx-border-color: #35506f;
     -fx-border-radius: 12;
 }
 
 .window-title {
-    -fx-text-fill: #f5f5f5;
+    -fx-text-fill: #e7f2ff;
     -fx-font-size: 12px;
     -fx-font-weight: 600;
 }
 
 .window-btn {
-    -fx-background-color: #222222;
+    -fx-background-color: #1a2d44;
     -fx-text-fill: #e6e6e6;
     -fx-background-radius: 10;
-    -fx-border-color: #2f2f2f;
+    -fx-border-color: #365271;
     -fx-border-radius: 10;
     -fx-padding: 4 12 4 12;
     -fx-cursor: hand;
 }
 
 .window-btn:hover {
-    -fx-background-color: #2d2d2d;
+    -fx-background-color: #27405c;
 }
 
 .window-btn-close:hover {
-    -fx-background-color: #3b2020;
-    -fx-border-color: #5a2b2b;
+    -fx-background-color: #1d3a59;
+    -fx-border-color: #2e5d87;
 }
 
 .top-container,
@@ -57,9 +56,9 @@ fx-theme-official: true
 .bottom-bar,
 .search-card,
 .file-table {
-    -fx-background-color: #171717;
+    -fx-background-color: #101b2b;
     -fx-background-radius: 14;
-    -fx-border-color: #2a2a2a;
+    -fx-border-color: #2c4462;
     -fx-border-radius: 14;
 }
 
@@ -68,19 +67,19 @@ fx-theme-official: true
 }
 
 .results-split > .split-pane-divider {
-    -fx-background-color: #252525;
+    -fx-background-color: #1a3048;
     -fx-padding: 0 0.5 0 0.5;
 }
 
 .app-logo {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-background-radius: 12;
-    -fx-border-color: #323232;
+    -fx-border-color: #3b5d82;
     -fx-border-radius: 12;
 }
 
 .app-title {
-    -fx-text-fill: #f5f5f5;
+    -fx-text-fill: #e7f2ff;
     -fx-font-size: 23px;
     -fx-font-weight: 700;
 }
@@ -98,9 +97,9 @@ fx-theme-official: true
 }
 
 .quick-chip {
-    -fx-background-color: #1f1f1f;
-    -fx-text-fill: #d8d8d8;
-    -fx-border-color: #313131;
+    -fx-background-color: #13253a;
+    -fx-text-fill: #cfe2f8;
+    -fx-border-color: #3a5f86;
     -fx-border-radius: 10;
     -fx-background-radius: 10;
     -fx-padding: 5 10 5 10;
@@ -111,24 +110,24 @@ fx-theme-official: true
 }
 
 .filter-chip {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-text-fill: #dadada;
-    -fx-border-color: #313131;
+    -fx-border-color: #3a5f86;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
     -fx-padding: 5 11 5 11;
 }
 
 .filter-chip:selected {
-    -fx-background-color: #f0f0f0;
-    -fx-text-fill: #111111;
+    -fx-background-color: #d9ecff;
+    -fx-text-fill: #0c1724;
 }
 
 .chip-input {
-    -fx-background-color: #1f1f1f;
-    -fx-text-fill: #e7e7e7;
-    -fx-prompt-text-fill: #888888;
-    -fx-border-color: #313131;
+    -fx-background-color: #13253a;
+    -fx-text-fill: #d9e9ff;
+    -fx-prompt-text-fill: #86a0be;
+    -fx-border-color: #3a5f86;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
     -fx-padding: 5 10 5 10;
@@ -139,21 +138,21 @@ fx-theme-official: true
 }
 
 .chip-check .box {
-    -fx-background-color: #1f1f1f;
-    -fx-border-color: #323232;
+    -fx-background-color: #13253a;
+    -fx-border-color: #3b5d82;
     -fx-border-radius: 6;
     -fx-background-radius: 6;
 }
 
 .preview-pane {
-    -fx-background-color: #161616;
-    -fx-border-color: #2b2b2b;
+    -fx-background-color: #112033;
+    -fx-border-color: #2a4668;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
 }
 
 .preview-title {
-    -fx-text-fill: #f0f0f0;
+    -fx-text-fill: #d9ecff;
     -fx-font-size: 14px;
     -fx-font-weight: 700;
 }
@@ -164,19 +163,19 @@ fx-theme-official: true
 }
 
 .preview-text {
-    -fx-control-inner-background: #121212;
-    -fx-background-color: #121212;
+    -fx-control-inner-background: #0e1a28;
+    -fx-background-color: #0e1a28;
     -fx-text-fill: #dcdcdc;
-    -fx-highlight-fill: #2e2e2e;
-    -fx-highlight-text-fill: #ffffff;
-    -fx-border-color: #2f2f2f;
+    -fx-highlight-fill: #35506f;
+    -fx-highlight-text-fill: #eef6ff;
+    -fx-border-color: #365271;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
 }
 
 .update-label {
-    -fx-background-color: #202020;
-    -fx-border-color: #303030;
+    -fx-background-color: #15263a;
+    -fx-border-color: #3f638a;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
     -fx-padding: 0 12 0 12;
@@ -184,16 +183,16 @@ fx-theme-official: true
 }
 
 .drive-select {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-text-fill: #e8e8e8;
-    -fx-border-color: #323232;
+    -fx-border-color: #3b5d82;
     -fx-border-radius: 10;
     -fx-background-radius: 10;
     -fx-padding: 0 10 0 10;
 }
 
 .drive-select .list-cell {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-text-fill: #e8e8e8;
     -fx-padding: 4 8 4 8;
 }
@@ -203,12 +202,12 @@ fx-theme-official: true
 }
 
 .drive-select .arrow {
-    -fx-background-color: #bdbdbd;
+    -fx-background-color: #a7c2df;
 }
 
 .drive-select-popup .list-view {
-    -fx-background-color: #161616;
-    -fx-border-color: #303030;
+    -fx-background-color: #112033;
+    -fx-border-color: #3f638a;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
 }
@@ -220,17 +219,17 @@ fx-theme-official: true
 }
 
 .drive-select-popup .list-cell:filled:hover {
-    -fx-background-color: #242424;
+    -fx-background-color: #1b334d;
 }
 
 .drive-select-popup .list-cell:filled:selected {
-    -fx-background-color: #2f2f2f;
+    -fx-background-color: #365271;
 }
 
 .settings-btn {
-    -fx-background-color: #1f1f1f;
-    -fx-text-fill: #ebebeb;
-    -fx-border-color: #323232;
+    -fx-background-color: #13253a;
+    -fx-text-fill: #e3f0ff;
+    -fx-border-color: #3b5d82;
     -fx-border-radius: 10;
     -fx-background-radius: 10;
     -fx-padding: 0 12 0 12;
@@ -238,18 +237,18 @@ fx-theme-official: true
 }
 
 .settings-btn:hover {
-    -fx-background-color: #2a2a2a;
+    -fx-background-color: #2c4462;
 }
 
 .settings-window {
-    -fx-background-color: linear-gradient(to bottom, #171717, #141414);
+    -fx-background-color: linear-gradient(to bottom, #101b2b, #0f1b2a);
     -fx-background-radius: 12;
-    -fx-border-color: #2f2f2f;
+    -fx-border-color: #365271;
     -fx-border-radius: 12;
 }
 
 .settings-header {
-    -fx-background-color: linear-gradient(to bottom, #1b1b1b, #161616);
+    -fx-background-color: linear-gradient(to bottom, #142337, #112033);
     -fx-background-radius: 12 12 0 0;
     -fx-border-color: #2c2c2c;
     -fx-border-width: 0 0 1 0;
@@ -257,7 +256,7 @@ fx-theme-official: true
 }
 
 .settings-title {
-    -fx-text-fill: #f5f5f5;
+    -fx-text-fill: #e7f2ff;
     -fx-font-size: 13px;
     -fx-font-weight: 700;
 }
@@ -267,13 +266,13 @@ fx-theme-official: true
 }
 
 .settings-section {
-    -fx-text-fill: #f2f2f2;
+    -fx-text-fill: #deeeff;
     -fx-font-size: 12px;
     -fx-font-weight: 700;
 }
 
 .settings-label {
-    -fx-text-fill: #d8d8d8;
+    -fx-text-fill: #cfe2f8;
 }
 
 .settings-actions {
@@ -281,52 +280,52 @@ fx-theme-official: true
 }
 
 .settings-btn-primary {
-    -fx-background-color: #f0f0f0;
-    -fx-text-fill: #111111;
-    -fx-border-color: #f0f0f0;
+    -fx-background-color: #d9ecff;
+    -fx-text-fill: #0c1724;
+    -fx-border-color: #d9ecff;
 }
 
 .settings-btn-primary:hover {
-    -fx-background-color: #ffffff;
-    -fx-border-color: #ffffff;
+    -fx-background-color: #eef6ff;
+    -fx-border-color: #eef6ff;
 }
 
 .settings-spinner {
     -fx-pref-width: 120;
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-border-color: #333333;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
 }
 
 .settings-spinner .text-field {
-    -fx-background-color: #1f1f1f;
-    -fx-text-fill: #ececec;
-    -fx-prompt-text-fill: #9a9a9a;
+    -fx-background-color: #13253a;
+    -fx-text-fill: #e0edff;
+    -fx-prompt-text-fill: #8faac8;
     -fx-background-insets: 0;
     -fx-background-radius: 10 0 0 10;
 }
 
 .settings-spinner .increment-arrow-button,
 .settings-spinner .decrement-arrow-button {
-    -fx-background-color: #252525;
+    -fx-background-color: #1a3048;
     -fx-border-color: #333333;
     -fx-padding: 2 8 2 8;
 }
 
 .settings-spinner .increment-arrow-button:hover,
 .settings-spinner .decrement-arrow-button:hover {
-    -fx-background-color: #313131;
+    -fx-background-color: #3a5f86;
 }
 
 .settings-spinner .increment-arrow,
 .settings-spinner .decrement-arrow {
-    -fx-background-color: #e7e7e7;
+    -fx-background-color: #d9e9ff;
 }
 
 .settings-oss {
-    -fx-background-color: #1a1a1a;
-    -fx-border-color: #2f2f2f;
+    -fx-background-color: #122236;
+    -fx-border-color: #365271;
     -fx-border-radius: 10;
     -fx-background-radius: 10;
     -fx-padding: 8 10 8 10;
@@ -334,7 +333,7 @@ fx-theme-official: true
 
 .settings-combo {
     -fx-pref-width: 210;
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-text-fill: #e8e8e8;
     -fx-border-color: #333333;
     -fx-border-radius: 10;
@@ -343,8 +342,8 @@ fx-theme-official: true
 }
 
 .settings-combo .list-cell {
-    -fx-background-color: #1f1f1f;
-    -fx-text-fill: #ececec;
+    -fx-background-color: #13253a;
+    -fx-text-fill: #e0edff;
     -fx-padding: 5 8 5 8;
 }
 
@@ -353,12 +352,12 @@ fx-theme-official: true
 }
 
 .settings-combo .arrow {
-    -fx-background-color: #bdbdbd;
+    -fx-background-color: #a7c2df;
 }
 
 .settings-combo-popup .list-view {
-    -fx-background-color: #161616;
-    -fx-border-color: #303030;
+    -fx-background-color: #112033;
+    -fx-border-color: #3f638a;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
 }
@@ -370,16 +369,16 @@ fx-theme-official: true
 }
 
 .settings-combo-popup .list-cell:filled:hover {
-    -fx-background-color: #242424;
+    -fx-background-color: #1b334d;
 }
 
 .settings-combo-popup .list-cell:filled:selected {
-    -fx-background-color: #2f2f2f;
+    -fx-background-color: #365271;
 }
 
 .settings-link-card {
-    -fx-background-color: #1a1a1a;
-    -fx-border-color: #323232;
+    -fx-background-color: #122236;
+    -fx-border-color: #3b5d82;
     -fx-border-radius: 12;
     -fx-background-radius: 12;
     -fx-padding: 9 12 9 12;
@@ -387,7 +386,7 @@ fx-theme-official: true
 }
 
 .settings-link-card:hover {
-    -fx-background-color: #232323;
+    -fx-background-color: #1f3855;
     -fx-border-color: #424242;
 }
 
@@ -414,12 +413,12 @@ fx-theme-official: true
 }
 
 .settings-card-title {
-    -fx-text-fill: #f2f2f2;
+    -fx-text-fill: #deeeff;
     -fx-font-weight: 700;
 }
 
 .settings-card-arrow {
-    -fx-text-fill: #bdbdbd;
+    -fx-text-fill: #a7c2df;
     -fx-font-size: 14px;
 }
 
@@ -435,7 +434,7 @@ fx-theme-official: true
 }
 
 .theme-radio .radio {
-    -fx-background-color: #141414;
+    -fx-background-color: #0f1b2a;
     -fx-border-color: #5f7ca3;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
@@ -509,8 +508,8 @@ fx-theme-official: true
 }
 
 .settings-icon-fallback {
-    -fx-text-fill: #f0f0f0;
-    -fx-background-color: #262626;
+    -fx-text-fill: #d9ecff;
+    -fx-background-color: #19314b;
     -fx-border-color: #3a3a3a;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
@@ -528,18 +527,18 @@ fx-theme-official: true
 }
 
 .settings-link {
-    -fx-text-fill: #f2f2f2;
+    -fx-text-fill: #deeeff;
     -fx-border-color: transparent;
     -fx-underline: false;
 }
 
 .settings-link:hover {
-    -fx-text-fill: #ffffff;
+    -fx-text-fill: #eef6ff;
 }
 
 .dialog-pane.settings-dialog {
-    -fx-background-color: #171717;
-    -fx-border-color: #2b2b2b;
+    -fx-background-color: #101b2b;
+    -fx-border-color: #2a4668;
 }
 
 .dialog-pane.settings-dialog > .content.label {
@@ -547,7 +546,7 @@ fx-theme-official: true
 }
 
 .dialog-pane.settings-dialog:header .header-panel {
-    -fx-background-color: #171717;
+    -fx-background-color: #101b2b;
 }
 
 .dialog-pane.settings-dialog:header .header-panel .label {
@@ -559,7 +558,7 @@ fx-theme-official: true
 }
 
 .dialog-pane.settings-dialog .button-bar .button {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-text-fill: #efefef;
     -fx-border-color: #333333;
     -fx-border-radius: 10;
@@ -568,7 +567,7 @@ fx-theme-official: true
 }
 
 .dialog-pane.settings-dialog .button-bar .button:hover {
-    -fx-background-color: #2b2b2b;
+    -fx-background-color: #2a4668;
 }
 
 .dialog-pane.settings-dialog .check-box {
@@ -583,7 +582,7 @@ fx-theme-official: true
 }
 
 .dialog-pane.settings-dialog .spinner {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-border-color: #333333;
     -fx-background-radius: 10;
     -fx-border-radius: 10;
@@ -591,17 +590,17 @@ fx-theme-official: true
 
 .dialog-pane.settings-dialog .spinner .text-field {
     -fx-background-color: transparent;
-    -fx-text-fill: #ececec;
+    -fx-text-fill: #e0edff;
 }
 
 .dialog-pane.settings-dialog .separator .line {
-    -fx-border-color: #2f2f2f;
+    -fx-border-color: #365271;
 }
 
 .search-field {
     -fx-background-color: transparent;
-    -fx-text-fill: #ffffff;
-    -fx-prompt-text-fill: #888888;
+    -fx-text-fill: #eef6ff;
+    -fx-prompt-text-fill: #86a0be;
     -fx-font-size: 14px;
     -fx-padding: 10 12 10 12;
 }
@@ -611,18 +610,18 @@ fx-theme-official: true
 }
 
 .phase-label {
-    -fx-text-fill: #f0f0f0;
+    -fx-text-fill: #d9ecff;
     -fx-font-size: 12px;
     -fx-font-weight: 600;
 }
 
 .index-progress > .bar {
-    -fx-background-color: #f0f0f0;
+    -fx-background-color: #d9ecff;
     -fx-background-radius: 6;
 }
 
 .index-progress > .track {
-    -fx-background-color: #2a2a2a;
+    -fx-background-color: #2c4462;
     -fx-background-radius: 6;
 }
 
@@ -649,27 +648,27 @@ fx-theme-official: true
 }
 
 .file-table .table-row-cell:filled:hover {
-    -fx-background-color: #202020;
+    -fx-background-color: #15263a;
 }
 
 .file-table .table-row-cell:filled:selected {
-    -fx-background-color: #2b2b2b;
+    -fx-background-color: #2a4668;
 }
 
 .file-table .table-cell {
     -fx-border-color: transparent;
-    -fx-text-fill: #f0f0f0;
+    -fx-text-fill: #d9ecff;
     -fx-padding: 8 10 8 10;
 }
 
 .name-cell-label {
-    -fx-text-fill: #f0f0f0;
+    -fx-text-fill: #d9ecff;
 }
 
 .context-menu {
-    -fx-background-color: #171717;
+    -fx-background-color: #101b2b;
     -fx-background-radius: 10;
-    -fx-border-color: #2f2f2f;
+    -fx-border-color: #365271;
     -fx-border-radius: 10;
 }
 
@@ -679,12 +678,12 @@ fx-theme-official: true
 
 .scroll-bar:horizontal,
 .scroll-bar:vertical {
-    -fx-background-color: #171717;
+    -fx-background-color: #101b2b;
 }
 
 .scroll-bar:horizontal .track,
 .scroll-bar:vertical .track {
-    -fx-background-color: #1f1f1f;
+    -fx-background-color: #13253a;
     -fx-background-radius: 8;
 }
 
@@ -698,7 +697,7 @@ fx-theme-official: true
 .scroll-bar:horizontal .decrement-button,
 .scroll-bar:vertical .increment-button,
 .scroll-bar:vertical .decrement-button {
-    -fx-background-color: #171717;
+    -fx-background-color: #101b2b;
     -fx-padding: 0;
 }
 
@@ -707,3 +706,4 @@ fx-theme-official: true
     -fx-shape: "";
     -fx-padding: 0;
 }
+

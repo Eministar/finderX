@@ -30,6 +30,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Spinner;
@@ -72,6 +73,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -82,6 +84,9 @@ public final class FinderXApp extends Application {
     private static final String RELEASE_API = "";
     private static final String GITHUB_URL = "https://github.com/eministar/FinderX";
     private static final String KOFI_URL = "https://ko-fi.com/eministar";
+    private static final String DEFAULT_THEME_RESOURCE = "/theme/dark-glass.css";
+    private static final String OFFICIAL_THEME_FILE = "dark-glass.css";
+    private static final String OFFICIAL_THEME_AUTHOR = "FinderX Team";
     private static final double RESIZE_MARGIN = 7.0;
 
     private final IndexService indexService = new IndexService();
@@ -96,6 +101,7 @@ public final class FinderXApp extends Application {
 
     private final LinkedHashSet<Path> pinnedPaths = new LinkedHashSet<>();
     private final List<Path> recentPaths = new ArrayList<>();
+    private final Path themesDir = Path.of(System.getProperty("user.home"), ".finderx", "themes");
 
     private TableView<FileRecord> table;
     private Label statusLabel;
@@ -132,9 +138,31 @@ public final class FinderXApp extends Application {
     private boolean discordPresenceEnabled = true;
     private AppLanguage appLanguage = AppLanguage.ENGLISH;
     private String latestUpdateVersion;
+    private boolean customThemeEnabled;
+    private String selectedThemeFile = "";
+    private Scene mainScene;
 
     private enum ResizeMode {
         NONE, N, S, E, W, NE, NW, SE, SW
+    }
+
+    private record ThemeSeed(String fileName, String resourcePath) {
+    }
+
+    private static final List<ThemeSeed> OFFICIAL_THEME_SEEDS = List.of(
+            new ThemeSeed("dark-glass.css", "/theme/dark-glass.css"),
+            new ThemeSeed("ocean-night.css", "/theme/ocean-night.css"),
+            new ThemeSeed("ember-ash.css", "/theme/ember-ash.css"),
+            new ThemeSeed("forest-mint.css", "/theme/forest-mint.css")
+    );
+
+    private record ThemeOption(
+            String fileName,
+            String displayName,
+            String author,
+            String description,
+            boolean official
+    ) {
     }
 
     private String t(I18nKey key, Object... args) {
@@ -217,6 +245,165 @@ public final class FinderXApp extends Application {
         }
     }
 
+    private void ensureThemesDir() {
+        try {
+            Files.createDirectories(themesDir);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void ensureOfficialThemeFiles() {
+        ensureThemesDir();
+        for (ThemeSeed seed : OFFICIAL_THEME_SEEDS) {
+            Path target = themesDir.resolve(seed.fileName());
+            try (var in = getClass().getResourceAsStream(seed.resourcePath())) {
+                if (in != null) {
+                    Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private List<ThemeOption> scanThemes() {
+        ensureOfficialThemeFiles();
+        List<ThemeOption> out = new ArrayList<>();
+        try (var stream = Files.list(themesDir)) {
+            stream.filter(path -> Files.isRegularFile(path)
+                            && path.getFileName() != null
+                            && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".css"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString().toLowerCase(Locale.ROOT)))
+                    .forEach(path -> {
+                        String fileName = path.getFileName().toString();
+                        ThemeOption meta = parseThemeMetadata(path);
+                        boolean official = meta.official();
+                        String name = meta.displayName();
+                        if (name == null || name.isBlank()) {
+                            name = fileName;
+                        }
+                        String label = official ? name + " " + t(I18nKey.SETTINGS_THEME_OFFICIAL_TAG) : name;
+                        out.add(new ThemeOption(
+                                fileName,
+                                label,
+                                meta.author(),
+                                meta.description(),
+                                official
+                        ));
+                    });
+        } catch (IOException ignored) {
+        }
+        return out;
+    }
+
+    private ThemeOption parseThemeMetadata(Path cssFile) {
+        String fileName = cssFile.getFileName() == null ? "" : cssFile.getFileName().toString();
+        String fallbackName = OFFICIAL_THEME_FILE.equalsIgnoreCase(fileName)
+                ? t(I18nKey.SETTINGS_THEME_DEFAULT_DARK_GLASS)
+                : fileName;
+        String name = fallbackName;
+        String author = OFFICIAL_THEME_AUTHOR;
+        String description = "";
+        boolean official = isOfficialTheme(fileName);
+
+        try {
+            List<String> lines = Files.readAllLines(cssFile);
+            for (String raw : lines) {
+                String line = raw == null ? "" : raw.trim();
+                line = line.replace("/*", "").replace("*/", "").trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                String lower = line.toLowerCase(Locale.ROOT);
+                if (lower.startsWith("fx-theme-name:")) {
+                    name = line.substring("fx-theme-name:".length()).trim();
+                } else if (lower.startsWith("fx-theme-author:")) {
+                    author = line.substring("fx-theme-author:".length()).trim();
+                } else if (lower.startsWith("fx-theme-description:")) {
+                    description = line.substring("fx-theme-description:".length()).trim();
+                }
+            }
+        } catch (IOException ignored) {
+        }
+
+        if (author == null || author.isBlank()) {
+            author = OFFICIAL_THEME_AUTHOR;
+        }
+        if (name == null || name.isBlank()) {
+            name = fallbackName;
+        }
+        if (description == null) {
+            description = "";
+        }
+        return new ThemeOption(fileName, name, author, description, official);
+    }
+
+    private boolean isOfficialTheme(String fileName) {
+        for (ThemeSeed seed : OFFICIAL_THEME_SEEDS) {
+            if (seed.fileName().equalsIgnoreCase(fileName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Path createNewThemeFile() throws IOException {
+        ensureOfficialThemeFiles();
+        String base = "custom-theme";
+        int idx = 1;
+        Path target = themesDir.resolve(base + ".css");
+        while (Files.exists(target)) {
+            idx++;
+            target = themesDir.resolve(base + "-" + idx + ".css");
+        }
+        String baseCss = Files.readString(themesDir.resolve(OFFICIAL_THEME_FILE));
+        baseCss = baseCss.replaceFirst("(?s)^/\\*.*?\\*/\\s*", "");
+        String metadata = String.join(System.lineSeparator(),
+                "/*",
+                "fx-theme-name: My Theme",
+                "fx-theme-author: Your Name",
+                "fx-theme-description: Describe your theme here.",
+                "*/",
+                ""
+        );
+        Files.writeString(target, metadata + System.lineSeparator() + baseCss);
+        return target;
+    }
+
+    private void openThemeInEditor(Path file) throws IOException {
+        if (file == null || !Desktop.isDesktopSupported()) {
+            return;
+        }
+        Desktop desktop = Desktop.getDesktop();
+        if (desktop.isSupported(Desktop.Action.EDIT)) {
+            desktop.edit(file.toFile());
+            return;
+        }
+        desktop.open(file.toFile());
+    }
+
+    private String resolveActiveThemeStylesheet() {
+        String fallback = getClass().getResource(DEFAULT_THEME_RESOURCE).toExternalForm();
+        if (selectedThemeFile == null || selectedThemeFile.isBlank()) {
+            return fallback;
+        }
+        Path css = themesDir.resolve(selectedThemeFile).normalize();
+        if (!Files.exists(css) || !Files.isRegularFile(css)) {
+            return fallback;
+        }
+        return css.toUri().toString();
+    }
+
+    private void applyThemeToScene(Scene scene) {
+        if (scene == null) {
+            return;
+        }
+        scene.getStylesheets().setAll(resolveActiveThemeStylesheet());
+    }
+
+    private void applyThemeToMainScene() {
+        applyThemeToScene(mainScene);
+    }
+
     public FinderXApp() {
         this.discordPresenceService = createDiscordPresenceService();
     }
@@ -260,7 +447,8 @@ public final class FinderXApp extends Application {
 
         Scene scene = new Scene(shell, 1450, 920);
         scene.setFill(Color.TRANSPARENT);
-        scene.getStylesheets().add(getClass().getResource("/theme/dark-glass.css").toExternalForm());
+        mainScene = scene;
+        applyThemeToScene(scene);
         stage.setScene(scene);
         stage.setTitle("FinderX");
         installResizeSupport(stage, scene);
@@ -411,6 +599,8 @@ public final class FinderXApp extends Application {
         appStateStore.saveMaxResults(maxResults);
         appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
         appStateStore.saveLanguage(appLanguage.code());
+        appStateStore.saveCustomThemeEnabled(customThemeEnabled);
+        appStateStore.saveSelectedThemeFile(selectedThemeFile);
         if (discordPresenceService != null) {
             discordPresenceService.stop();
         }
@@ -426,6 +616,9 @@ public final class FinderXApp extends Application {
         maxResults = Math.max(100, Math.min(5000, appStateStore.loadMaxResults()));
         discordPresenceEnabled = appStateStore.loadDiscordPresenceEnabled();
         appLanguage = AppLanguage.fromCode(appStateStore.loadLanguage());
+        customThemeEnabled = appStateStore.loadCustomThemeEnabled();
+        selectedThemeFile = appStateStore.loadSelectedThemeFile();
+        ensureOfficialThemeFiles();
         try {
             activeRoot = Path.of(appStateStore.loadSelectedRoot());
         } catch (Exception ignored) {
@@ -1006,6 +1199,9 @@ public final class FinderXApp extends Application {
             statusLabel.setText(t(I18nKey.SETTINGS_STATUS_CACHE_CLEARED));
         });
 
+        Button themeSupportBtn = new Button(t(I18nKey.SETTINGS_THEME_SUPPORT));
+        themeSupportBtn.getStyleClass().add("settings-btn");
+
         Button clearStateBtn = new Button(t(I18nKey.SETTINGS_CLEAR_APP_STATE));
         clearStateBtn.getStyleClass().add("settings-btn");
         clearStateBtn.setOnAction(e -> {
@@ -1055,7 +1251,7 @@ public final class FinderXApp extends Application {
         githubCard.setGraphic(ossRow);
         githubCard.setMaxWidth(Double.MAX_VALUE);
         githubCard.setAlignment(Pos.CENTER_LEFT);
-        githubCard.getStyleClass().add("settings-link-card");
+        githubCard.getStyleClass().addAll("settings-link-card", "settings-quick-card", "settings-github-card");
         githubCard.setOnAction(e -> openInBrowser(GITHUB_URL));
 
         ImageView kofiIcon = new ImageView();
@@ -1091,7 +1287,7 @@ public final class FinderXApp extends Application {
         donateCard.setGraphic(supportRow);
         donateCard.setMaxWidth(Double.MAX_VALUE);
         donateCard.setAlignment(Pos.CENTER_LEFT);
-        donateCard.getStyleClass().add("settings-link-card");
+        donateCard.getStyleClass().addAll("settings-link-card", "settings-quick-card", "settings-kofi-card");
         donateCard.setOnAction(e -> openInBrowser(KOFI_URL));
 
         VBox content = new VBox(
@@ -1103,6 +1299,7 @@ public final class FinderXApp extends Application {
                 languageRow,
                 new Separator(),
                 maintenanceLabel,
+                themeSupportBtn,
                 clearCacheBtn,
                 clearStateBtn,
                 new Separator(),
@@ -1156,8 +1353,10 @@ public final class FinderXApp extends Application {
 
         Scene scene = new Scene(window, 500, 520);
         scene.setFill(Color.TRANSPARENT);
-        scene.getStylesheets().add(getClass().getResource("/theme/dark-glass.css").toExternalForm());
+        applyThemeToScene(scene);
         modal.setScene(scene);
+
+        themeSupportBtn.setOnAction(e -> showThemeDialog(modal, scene));
 
         closeBtn.setOnAction(e -> modal.close());
         cancelBtn.setOnAction(e -> modal.close());
@@ -1194,6 +1393,247 @@ public final class FinderXApp extends Application {
         });
 
         modal.showAndWait();
+    }
+
+    private void showThemeDialog(Stage owner, Scene settingsScene) {
+        Label activeThemeLabel = new Label(t(I18nKey.SETTINGS_THEME_ACTIVE));
+        activeThemeLabel.getStyleClass().add("settings-label");
+        Label hint = new Label();
+        hint.getStyleClass().add("settings-label");
+
+        VBox themesList = new VBox(8);
+        ToggleGroup themeGroup = new ToggleGroup();
+        final ThemeOption[] selectedTheme = new ThemeOption[1];
+
+        Runnable refreshThemes = () -> {
+            List<ThemeOption> themes = scanThemes();
+            themesList.getChildren().clear();
+            themeGroup.getToggles().clear();
+            selectedTheme[0] = null;
+
+            String preferred = (selectedThemeFile != null && !selectedThemeFile.isBlank())
+                    ? selectedThemeFile
+                    : OFFICIAL_THEME_FILE;
+
+            if (themes.isEmpty()) {
+                hint.setText(t(I18nKey.SETTINGS_THEME_EMPTY));
+                return;
+            }
+
+            hint.setText("");
+            for (ThemeOption theme : themes) {
+                boolean isActiveTheme = theme.fileName().equalsIgnoreCase(preferred);
+                javafx.scene.control.RadioButton toggle = new javafx.scene.control.RadioButton();
+                toggle.getStyleClass().add("theme-radio");
+                toggle.setToggleGroup(themeGroup);
+                toggle.setUserData(theme);
+
+                String subText = theme.official()
+                        ? (isActiveTheme ? t(I18nKey.SETTINGS_THEME_AUTO_ACTIVE) : "")
+                        : theme.fileName();
+                Label title = new Label(theme.displayName());
+                title.getStyleClass().addAll("settings-card-title", "theme-card-title");
+                Label authorLabel = new Label(t(I18nKey.SETTINGS_THEME_AUTHOR_PREFIX, theme.author()));
+                authorLabel.getStyleClass().addAll("settings-label", "theme-card-author");
+                String descriptionText = theme.description() == null || theme.description().isBlank()
+                        ? subText
+                        : t(I18nKey.SETTINGS_THEME_DESCRIPTION_PREFIX, theme.description());
+                Label descriptionLabel = new Label(descriptionText);
+                descriptionLabel.getStyleClass().addAll("settings-label", "theme-card-description");
+                descriptionLabel.setWrapText(false);
+                descriptionLabel.setMaxWidth(420);
+                descriptionLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
+
+                StackPane selectorWrap = new StackPane(toggle);
+                selectorWrap.getStyleClass().add("theme-card-selector");
+                selectorWrap.setPrefSize(30, 30);
+
+                Region headSpacer = new Region();
+                HBox.setHgrow(headSpacer, Priority.ALWAYS);
+                HBox headRow = new HBox(10, title, headSpacer, selectorWrap);
+                headRow.setAlignment(Pos.TOP_LEFT);
+                headRow.getStyleClass().add("theme-card-head");
+
+                VBox textCol = new VBox(4, headRow, authorLabel, descriptionLabel);
+                textCol.getStyleClass().add("theme-card-text");
+                HBox.setHgrow(textCol, Priority.ALWAYS);
+
+                HBox card = new HBox(textCol);
+                card.setMaxWidth(Double.MAX_VALUE);
+                card.setAlignment(Pos.TOP_LEFT);
+                card.getStyleClass().addAll("settings-link-card", "theme-card");
+                card.setOnMouseClicked(evt -> toggle.setSelected(true));
+                toggle.selectedProperty().addListener((obs, old, selected) -> {
+                    if (selected) {
+                        if (!card.getStyleClass().contains("settings-link-card-selected")) {
+                            card.getStyleClass().add("settings-link-card-selected");
+                        }
+                    } else {
+                        card.getStyleClass().remove("settings-link-card-selected");
+                    }
+                });
+
+                themesList.getChildren().add(card);
+
+                if (isActiveTheme) {
+                    toggle.setSelected(true);
+                    selectedTheme[0] = theme;
+                }
+            }
+
+            if (selectedTheme[0] == null && !themeGroup.getToggles().isEmpty()) {
+                themeGroup.selectToggle(themeGroup.getToggles().getFirst());
+                selectedTheme[0] = (ThemeOption) themeGroup.getSelectedToggle().getUserData();
+            }
+        };
+        refreshThemes.run();
+
+        themeGroup.selectedToggleProperty().addListener((obs, old, val) -> {
+            if (val != null) {
+                selectedTheme[0] = (ThemeOption) val.getUserData();
+            }
+        });
+
+        Button createThemeBtn = new Button(t(I18nKey.SETTINGS_THEME_CREATE_NEW));
+        createThemeBtn.getStyleClass().add("settings-btn");
+        createThemeBtn.setOnAction(e -> {
+            try {
+                Path created = createNewThemeFile();
+                try {
+                    openThemeInEditor(created);
+                } catch (Exception ex) {
+                    hint.setText(t(I18nKey.SETTINGS_THEME_OPEN_EDITOR_FAILED, ex.getMessage()));
+                }
+                refreshThemes.run();
+            } catch (IOException ex) {
+                hint.setText(t(I18nKey.SETTINGS_THEME_CREATE_FAILED, ex.getMessage()));
+            }
+        });
+
+        Button openFolderBtn = new Button(t(I18nKey.SETTINGS_THEME_OPEN_FOLDER));
+        openFolderBtn.getStyleClass().add("settings-btn");
+        openFolderBtn.setOnAction(e -> {
+            openThemesFolder(hint);
+            refreshThemes.run();
+        });
+
+        Button refreshBtn = new Button(t(I18nKey.SETTINGS_THEME_REFRESH));
+        refreshBtn.getStyleClass().add("settings-btn");
+        refreshBtn.setOnAction(e -> refreshThemes.run());
+
+        ScrollPane listScroll = new ScrollPane(themesList);
+        listScroll.setFitToWidth(true);
+        listScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        listScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        listScroll.getStyleClass().add("settings-scroll");
+        listScroll.setPrefViewportHeight(240);
+        themesList.getStyleClass().add("theme-list");
+
+        HBox toolsRow = new HBox(8, createThemeBtn, openFolderBtn, refreshBtn);
+        toolsRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox content = new VBox(
+                10,
+                activeThemeLabel,
+                listScroll,
+                hint,
+                new Separator(),
+                toolsRow
+        );
+        content.getStyleClass().add("settings-content");
+
+        Label title = new Label(t(I18nKey.SETTINGS_THEME_DIALOG_TITLE));
+        title.getStyleClass().add("settings-title");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button closeBtn = new Button("✕");
+        closeBtn.getStyleClass().addAll("window-btn", "window-btn-close");
+        HBox header = new HBox(8, title, spacer, closeBtn);
+        header.getStyleClass().add("settings-header");
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Button cancelBtn = new Button(t(I18nKey.SETTINGS_CANCEL));
+        cancelBtn.getStyleClass().add("settings-btn");
+        Button saveBtn = new Button(t(I18nKey.SETTINGS_SAVE));
+        saveBtn.getStyleClass().addAll("settings-btn", "settings-btn-primary");
+        HBox actions = new HBox(10, cancelBtn, saveBtn);
+        actions.getStyleClass().add("settings-actions");
+        actions.setAlignment(Pos.CENTER_RIGHT);
+
+        BorderPane window = new BorderPane();
+        window.getStyleClass().add("settings-window");
+        window.setTop(header);
+        window.setCenter(content);
+        window.setBottom(actions);
+
+        Rectangle clip = new Rectangle();
+        clip.setArcWidth(24);
+        clip.setArcHeight(24);
+        clip.widthProperty().bind(window.widthProperty());
+        clip.heightProperty().bind(window.heightProperty());
+        window.setClip(clip);
+
+        Stage modal = new Stage(StageStyle.TRANSPARENT);
+        modal.initOwner(owner);
+        modal.initModality(Modality.WINDOW_MODAL);
+        Scene themeScene = new Scene(window, 620, 520);
+        themeScene.setFill(Color.TRANSPARENT);
+        applyThemeToScene(themeScene);
+        modal.setScene(themeScene);
+
+        closeBtn.setOnAction(e -> modal.close());
+        cancelBtn.setOnAction(e -> modal.close());
+        saveBtn.setOnAction(e -> {
+            ThemeOption selected = selectedTheme[0];
+            if (selected == null) {
+                selected = new ThemeOption(
+                        OFFICIAL_THEME_FILE,
+                        t(I18nKey.SETTINGS_THEME_DEFAULT_DARK_GLASS),
+                        OFFICIAL_THEME_AUTHOR,
+                        "",
+                        true
+                );
+            }
+            selectedThemeFile = selected.fileName();
+            customThemeEnabled = !OFFICIAL_THEME_FILE.equalsIgnoreCase(selectedThemeFile);
+            appStateStore.saveCustomThemeEnabled(customThemeEnabled);
+            appStateStore.saveSelectedThemeFile(selectedThemeFile);
+            applyThemeToMainScene();
+            applyThemeToScene(settingsScene);
+            applyThemeToScene(themeScene);
+            modal.close();
+        });
+
+        modal.focusedProperty().addListener((obs, old, focused) -> {
+            if (focused) {
+                refreshThemes.run();
+            }
+        });
+
+        header.setOnMousePressed(e -> {
+            dragOffsetX = e.getSceneX();
+            dragOffsetY = e.getSceneY();
+        });
+        header.setOnMouseDragged(e -> {
+            modal.setX(e.getScreenX() - dragOffsetX);
+            modal.setY(e.getScreenY() - dragOffsetY);
+        });
+
+        modal.showAndWait();
+    }
+
+    private void openThemesFolder(Label statusTarget) {
+        ensureThemesDir();
+        try {
+            if (!Desktop.isDesktopSupported()) {
+                return;
+            }
+            Desktop.getDesktop().open(themesDir.toFile());
+        } catch (Exception ex) {
+            if (statusTarget != null) {
+                statusTarget.setText(t(I18nKey.SETTINGS_THEME_FOLDER_OPEN_FAILED, ex.getMessage()));
+            }
+        }
     }
 
     private void openInBrowser(String url) {
