@@ -83,6 +83,18 @@ public final class AppStateStore {
         return Boolean.parseBoolean(loadSetting("discordPresenceEnabled", "true"));
     }
 
+    public String loadLanguage() {
+        return loadSetting("language", "en");
+    }
+
+    public boolean loadCustomThemeEnabled() {
+        return Boolean.parseBoolean(loadSetting("customThemeEnabled", "false"));
+    }
+
+    public String loadSelectedThemeFile() {
+        return loadSetting("selectedThemeFile", "");
+    }
+
     public void saveSelectedRoot(String root) {
         saveSetting("selectedRoot", root);
     }
@@ -97,6 +109,18 @@ public final class AppStateStore {
 
     public void saveDiscordPresenceEnabled(boolean enabled) {
         saveSetting("discordPresenceEnabled", Boolean.toString(enabled));
+    }
+
+    public void saveLanguage(String languageCode) {
+        saveSetting("language", languageCode);
+    }
+
+    public void saveCustomThemeEnabled(boolean enabled) {
+        saveSetting("customThemeEnabled", Boolean.toString(enabled));
+    }
+
+    public void saveSelectedThemeFile(String fileName) {
+        saveSetting("selectedThemeFile", fileName == null ? "" : fileName);
     }
 
     public void clearAllState() {

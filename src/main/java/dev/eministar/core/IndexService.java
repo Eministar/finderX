@@ -32,18 +32,22 @@ import java.util.zip.GZIPOutputStream;
 public final class IndexService {
     private static final Base64.Encoder B64_ENC = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder B64_DEC = Base64.getUrlDecoder();
+    private static final int SCAN_BATCH_BEFORE_YIELD = 512;
+    private static final long SCAN_YIELD_NANOS = 1_500_000L;
 
-    private final int scanWorkers = Math.max(4, Runtime.getRuntime().availableProcessors() * 2);
+    private final int scanWorkers = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() / 2));
     private final int searchWorkers = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
 
     private final ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "index-coordinator");
         t.setDaemon(true);
+        t.setPriority(Thread.NORM_PRIORITY - 1);
         return t;
     });
     private final ExecutorService scanExecutor = Executors.newFixedThreadPool(scanWorkers, r -> {
         Thread t = new Thread(r, "scan-worker");
         t.setDaemon(true);
+        t.setPriority(Thread.MIN_PRIORITY);
         return t;
     });
     private final ExecutorService searchExecutor = Executors.newFixedThreadPool(searchWorkers, r -> {
@@ -331,6 +335,7 @@ public final class IndexService {
             AtomicLong dirs,
             Consumer<IndexProgress> progressConsumer
     ) {
+        int scannedSinceYield = 0;
         try (var stream = Files.newDirectoryStream(directory)) {
             for (Path child : stream) {
                 try {
@@ -352,6 +357,10 @@ public final class IndexService {
                         if ((f & 4095L) == 0L) {
                             progressConsumer.accept(new IndexProgress(f, dirs.get(), true, child.toString(), "scan"));
                         }
+                    }
+                    scannedSinceYield++;
+                    if ((scannedSinceYield & (SCAN_BATCH_BEFORE_YIELD - 1)) == 0) {
+                        LockSupport.parkNanos(SCAN_YIELD_NANOS);
                     }
                 } catch (Exception ignored) {
                 }

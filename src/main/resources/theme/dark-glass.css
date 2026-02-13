@@ -325,6 +325,101 @@
     -fx-padding: 8 10 8 10;
 }
 
+.settings-combo {
+    -fx-pref-width: 210;
+    -fx-background-color: #1f1f1f;
+    -fx-text-fill: #e8e8e8;
+    -fx-border-color: #333333;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 0 10 0 10;
+}
+
+.settings-combo .list-cell {
+    -fx-background-color: #1f1f1f;
+    -fx-text-fill: #ececec;
+    -fx-padding: 5 8 5 8;
+}
+
+.settings-combo .arrow-button {
+    -fx-background-color: transparent;
+}
+
+.settings-combo .arrow {
+    -fx-background-color: #bdbdbd;
+}
+
+.settings-combo-popup .list-view {
+    -fx-background-color: #161616;
+    -fx-border-color: #303030;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+}
+
+.settings-combo-popup .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #e8e8e8;
+    -fx-padding: 7 10 7 10;
+}
+
+.settings-combo-popup .list-cell:filled:hover {
+    -fx-background-color: #242424;
+}
+
+.settings-combo-popup .list-cell:filled:selected {
+    -fx-background-color: #2f2f2f;
+}
+
+.settings-link-card {
+    -fx-background-color: #1a1a1a;
+    -fx-border-color: #2f2f2f;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 8 10 8 10;
+    -fx-alignment: center-left;
+    -fx-min-height: 46;
+    -fx-pref-height: 46;
+    -fx-max-height: 46;
+}
+
+.settings-link-card:hover {
+    -fx-background-color: #232323;
+    -fx-border-color: #3a3a3a;
+}
+
+.settings-link-card > .graphic-container {
+    -fx-padding: 0;
+}
+
+.settings-card-title {
+    -fx-text-fill: #f2f2f2;
+    -fx-font-weight: 700;
+}
+
+.settings-card-arrow {
+    -fx-text-fill: #bdbdbd;
+    -fx-font-size: 14px;
+}
+
+.settings-icon-fallback {
+    -fx-text-fill: #f0f0f0;
+    -fx-background-color: #262626;
+    -fx-border-color: #3a3a3a;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-padding: 1 6 1 6;
+    -fx-font-weight: 700;
+}
+
+.settings-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.settings-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
 .settings-link {
     -fx-text-fill: #f2f2f2;
     -fx-border-color: transparent;

@@ -1,0 +1,203 @@
+package dev.eministar.i18n;
+
+import java.util.EnumMap;
+import java.util.Map;
+
+public final class I18n {
+    private static final Map<AppLanguage, EnumMap<I18nKey, String>> TEXTS = buildTexts();
+
+    private I18n() {
+    }
+
+    public static String tr(AppLanguage language, I18nKey key, Object... args) {
+        AppLanguage safeLanguage = language == null ? AppLanguage.ENGLISH : language;
+        String pattern = TEXTS.getOrDefault(safeLanguage, TEXTS.get(AppLanguage.ENGLISH))
+                .getOrDefault(key, TEXTS.get(AppLanguage.ENGLISH).getOrDefault(key, key.name()));
+        if (args == null || args.length == 0) {
+            return pattern;
+        }
+        return String.format(pattern, args);
+    }
+
+    private static Map<AppLanguage, EnumMap<I18nKey, String>> buildTexts() {
+        EnumMap<I18nKey, String> en = new EnumMap<>(I18nKey.class);
+        en.put(I18nKey.APP_SUBTITLE, "Instant search");
+        en.put(I18nKey.DISCORD_READY, "Ready to search");
+        en.put(I18nKey.DISCORD_BROWSING, "Browsing %s");
+        en.put(I18nKey.UI_SETTINGS, "Settings");
+        en.put(I18nKey.UI_VERSION, "Version %s");
+        en.put(I18nKey.UI_UPDATE_AVAILABLE, "Update %s available");
+        en.put(I18nKey.UI_SEARCH_PROMPT, "Search files and folders...");
+        en.put(I18nKey.UI_FILTER_ALL, "All");
+        en.put(I18nKey.UI_FILTER_FILES, "Files");
+        en.put(I18nKey.UI_FILTER_FOLDERS, "Folders");
+        en.put(I18nKey.UI_EXT_FILTER_PROMPT, "ext: pdf");
+        en.put(I18nKey.UI_RECENT_30D, "30d");
+        en.put(I18nKey.UI_SMART_RANK_SHORT, "Smart rank");
+        en.put(I18nKey.UI_PHASE_READY, "Ready");
+        en.put(I18nKey.UI_PHASE_INITIALIZING, "Initializing");
+        en.put(I18nKey.UI_PHASE_SEARCH, "Search");
+        en.put(I18nKey.UI_PHASE_SCAN, "Scan");
+        en.put(I18nKey.UI_PHASE_CACHE, "Cache");
+        en.put(I18nKey.UI_PHASE_BUILD, "Build");
+        en.put(I18nKey.UI_STATUS_PREPARING_INDEX, "Preparing index...");
+        en.put(I18nKey.UI_STATUS_TYPE_TO_SEARCH, "Type to search");
+        en.put(I18nKey.UI_STATUS_INDEXING, "Indexing: %d files / %d folders");
+        en.put(I18nKey.UI_STATUS_INDEX_READY, "Index ready: %d files / %d folders");
+        en.put(I18nKey.UI_RESULTS_COUNT, "%d results");
+        en.put(I18nKey.UI_TABLE_NO_RESULTS, "No results");
+        en.put(I18nKey.UI_COL_NAME, "Name");
+        en.put(I18nKey.UI_COL_TYPE, "Type");
+        en.put(I18nKey.UI_COL_PATH, "Path");
+        en.put(I18nKey.UI_MENU_OPEN, "Open");
+        en.put(I18nKey.UI_MENU_OPEN_PARENT, "Open parent folder");
+        en.put(I18nKey.UI_MENU_PIN_TOGGLE, "Pin/Unpin");
+        en.put(I18nKey.UI_MENU_COPY_PATH, "Copy path");
+        en.put(I18nKey.UI_MENU_DELETE, "Delete");
+        en.put(I18nKey.UI_STATUS_DELETE_FAILED, "Delete failed: %s");
+        en.put(I18nKey.UI_STATUS_PATH_COPIED, "Path copied");
+        en.put(I18nKey.UI_STATUS_OPEN_FAILED, "Open failed: %s");
+        en.put(I18nKey.UI_QUICK_PINNED, "Pinned");
+        en.put(I18nKey.UI_QUICK_RECENT, "Recent");
+        en.put(I18nKey.UI_QUICK_BUTTON_FORMAT, "%s: %s");
+        en.put(I18nKey.SETTINGS_SMART_RANKING, "Enable smart ranking");
+        en.put(I18nKey.SETTINGS_DISCORD_PRESENCE, "Enable Discord Rich Presence");
+        en.put(I18nKey.SETTINGS_PERFORMANCE, "Performance");
+        en.put(I18nKey.SETTINGS_MAX_RESULTS, "Max results:");
+        en.put(I18nKey.SETTINGS_LANGUAGE, "Language:");
+        en.put(I18nKey.SETTINGS_MAINTENANCE, "Maintenance");
+        en.put(I18nKey.SETTINGS_CLEAR_INDEX_CACHE, "Clear index cache");
+        en.put(I18nKey.SETTINGS_CLEAR_APP_STATE, "Clear app state");
+        en.put(I18nKey.SETTINGS_STATUS_CACHE_CLEARED, "Index cache cleared");
+        en.put(I18nKey.SETTINGS_STATUS_APP_STATE_CLEARED, "App state cleared");
+        en.put(I18nKey.SETTINGS_OSS_TEXT, "FinderX is open source.");
+        en.put(I18nKey.SETTINGS_GITHUB, "GitHub");
+        en.put(I18nKey.SETTINGS_SUPPORT_TEXT, "FinderX costs a lot of time to build and maintain.");
+        en.put(I18nKey.SETTINGS_DONATE_BUTTON, "Support on Ko-fi");
+        en.put(I18nKey.SETTINGS_CANCEL, "Cancel");
+        en.put(I18nKey.SETTINGS_SAVE, "Save");
+        en.put(I18nKey.SETTINGS_LANGUAGE_APPLIED_ON_REOPEN, "Language saved. Reopen settings to see translated labels.");
+
+        EnumMap<I18nKey, String> de = new EnumMap<>(I18nKey.class);
+        de.put(I18nKey.APP_SUBTITLE, "Sofortsuche");
+        de.put(I18nKey.DISCORD_READY, "Bereit zum Suchen");
+        de.put(I18nKey.DISCORD_BROWSING, "Durchsuche %s");
+        de.put(I18nKey.UI_SETTINGS, "Einstellungen");
+        de.put(I18nKey.UI_VERSION, "Version %s");
+        de.put(I18nKey.UI_UPDATE_AVAILABLE, "Update %s verfugbar");
+        de.put(I18nKey.UI_SEARCH_PROMPT, "Dateien und Ordner suchen...");
+        de.put(I18nKey.UI_FILTER_ALL, "Alle");
+        de.put(I18nKey.UI_FILTER_FILES, "Dateien");
+        de.put(I18nKey.UI_FILTER_FOLDERS, "Ordner");
+        de.put(I18nKey.UI_EXT_FILTER_PROMPT, "ext: pdf");
+        de.put(I18nKey.UI_RECENT_30D, "30T");
+        de.put(I18nKey.UI_SMART_RANK_SHORT, "Smart Rank");
+        de.put(I18nKey.UI_PHASE_READY, "Bereit");
+        de.put(I18nKey.UI_PHASE_INITIALIZING, "Initialisiere");
+        de.put(I18nKey.UI_PHASE_SEARCH, "Suche");
+        de.put(I18nKey.UI_PHASE_SCAN, "Scan");
+        de.put(I18nKey.UI_PHASE_CACHE, "Cache");
+        de.put(I18nKey.UI_PHASE_BUILD, "Aufbau");
+        de.put(I18nKey.UI_STATUS_PREPARING_INDEX, "Index wird vorbereitet...");
+        de.put(I18nKey.UI_STATUS_TYPE_TO_SEARCH, "Tippe zum Suchen");
+        de.put(I18nKey.UI_STATUS_INDEXING, "Indiziere: %d Dateien / %d Ordner");
+        de.put(I18nKey.UI_STATUS_INDEX_READY, "Index bereit: %d Dateien / %d Ordner");
+        de.put(I18nKey.UI_RESULTS_COUNT, "%d Ergebnisse");
+        de.put(I18nKey.UI_TABLE_NO_RESULTS, "Keine Ergebnisse");
+        de.put(I18nKey.UI_COL_NAME, "Name");
+        de.put(I18nKey.UI_COL_TYPE, "Typ");
+        de.put(I18nKey.UI_COL_PATH, "Pfad");
+        de.put(I18nKey.UI_MENU_OPEN, "Offnen");
+        de.put(I18nKey.UI_MENU_OPEN_PARENT, "Ubergeordneten Ordner offnen");
+        de.put(I18nKey.UI_MENU_PIN_TOGGLE, "Anheften/Losen");
+        de.put(I18nKey.UI_MENU_COPY_PATH, "Pfad kopieren");
+        de.put(I18nKey.UI_MENU_DELETE, "Loschen");
+        de.put(I18nKey.UI_STATUS_DELETE_FAILED, "Loschen fehlgeschlagen: %s");
+        de.put(I18nKey.UI_STATUS_PATH_COPIED, "Pfad kopiert");
+        de.put(I18nKey.UI_STATUS_OPEN_FAILED, "Offnen fehlgeschlagen: %s");
+        de.put(I18nKey.UI_QUICK_PINNED, "Angeheftet");
+        de.put(I18nKey.UI_QUICK_RECENT, "Zuletzt");
+        de.put(I18nKey.UI_QUICK_BUTTON_FORMAT, "%s: %s");
+        de.put(I18nKey.SETTINGS_SMART_RANKING, "Smart Ranking aktivieren");
+        de.put(I18nKey.SETTINGS_DISCORD_PRESENCE, "Discord Rich Presence aktivieren");
+        de.put(I18nKey.SETTINGS_PERFORMANCE, "Leistung");
+        de.put(I18nKey.SETTINGS_MAX_RESULTS, "Max Ergebnisse:");
+        de.put(I18nKey.SETTINGS_LANGUAGE, "Sprache:");
+        de.put(I18nKey.SETTINGS_MAINTENANCE, "Wartung");
+        de.put(I18nKey.SETTINGS_CLEAR_INDEX_CACHE, "Index-Cache leeren");
+        de.put(I18nKey.SETTINGS_CLEAR_APP_STATE, "App-Status leeren");
+        de.put(I18nKey.SETTINGS_STATUS_CACHE_CLEARED, "Index-Cache geleert");
+        de.put(I18nKey.SETTINGS_STATUS_APP_STATE_CLEARED, "App-Status geleert");
+        de.put(I18nKey.SETTINGS_OSS_TEXT, "FinderX ist Open Source.");
+        de.put(I18nKey.SETTINGS_GITHUB, "GitHub");
+        de.put(I18nKey.SETTINGS_SUPPORT_TEXT, "FinderX kostet viel Zeit in Entwicklung und Pflege.");
+        de.put(I18nKey.SETTINGS_DONATE_BUTTON, "Auf Ko-fi unterstutzen");
+        de.put(I18nKey.SETTINGS_CANCEL, "Abbrechen");
+        de.put(I18nKey.SETTINGS_SAVE, "Speichern");
+        de.put(I18nKey.SETTINGS_LANGUAGE_APPLIED_ON_REOPEN, "Sprache gespeichert. Einstellungen neu offnen fur neue Texte.");
+
+        EnumMap<I18nKey, String> tr = new EnumMap<>(I18nKey.class);
+        tr.put(I18nKey.APP_SUBTITLE, "Aninda arama");
+        tr.put(I18nKey.DISCORD_READY, "Arama icin hazir");
+        tr.put(I18nKey.DISCORD_BROWSING, "%s taraniyor");
+        tr.put(I18nKey.UI_SETTINGS, "Ayarlar");
+        tr.put(I18nKey.UI_VERSION, "Surum %s");
+        tr.put(I18nKey.UI_UPDATE_AVAILABLE, "%s guncellemesi mevcut");
+        tr.put(I18nKey.UI_SEARCH_PROMPT, "Dosya ve klasor ara...");
+        tr.put(I18nKey.UI_FILTER_ALL, "Tum");
+        tr.put(I18nKey.UI_FILTER_FILES, "Dosyalar");
+        tr.put(I18nKey.UI_FILTER_FOLDERS, "Klasorler");
+        tr.put(I18nKey.UI_EXT_FILTER_PROMPT, "uzanti: pdf");
+        tr.put(I18nKey.UI_RECENT_30D, "30g");
+        tr.put(I18nKey.UI_SMART_RANK_SHORT, "Akilli siralama");
+        tr.put(I18nKey.UI_PHASE_READY, "Hazir");
+        tr.put(I18nKey.UI_PHASE_INITIALIZING, "Baslatiliyor");
+        tr.put(I18nKey.UI_PHASE_SEARCH, "Arama");
+        tr.put(I18nKey.UI_PHASE_SCAN, "Tarama");
+        tr.put(I18nKey.UI_PHASE_CACHE, "Onbellek");
+        tr.put(I18nKey.UI_PHASE_BUILD, "Olusturma");
+        tr.put(I18nKey.UI_STATUS_PREPARING_INDEX, "Indeks hazirlaniyor...");
+        tr.put(I18nKey.UI_STATUS_TYPE_TO_SEARCH, "Aramak icin yaz");
+        tr.put(I18nKey.UI_STATUS_INDEXING, "Indeksleniyor: %d dosya / %d klasor");
+        tr.put(I18nKey.UI_STATUS_INDEX_READY, "Indeks hazir: %d dosya / %d klasor");
+        tr.put(I18nKey.UI_RESULTS_COUNT, "%d sonuc");
+        tr.put(I18nKey.UI_TABLE_NO_RESULTS, "Sonuc yok");
+        tr.put(I18nKey.UI_COL_NAME, "Ad");
+        tr.put(I18nKey.UI_COL_TYPE, "Tur");
+        tr.put(I18nKey.UI_COL_PATH, "Yol");
+        tr.put(I18nKey.UI_MENU_OPEN, "Ac");
+        tr.put(I18nKey.UI_MENU_OPEN_PARENT, "Ust klasoru ac");
+        tr.put(I18nKey.UI_MENU_PIN_TOGGLE, "Sabitle/Kaldir");
+        tr.put(I18nKey.UI_MENU_COPY_PATH, "Yolu kopyala");
+        tr.put(I18nKey.UI_MENU_DELETE, "Sil");
+        tr.put(I18nKey.UI_STATUS_DELETE_FAILED, "Silme basarisiz: %s");
+        tr.put(I18nKey.UI_STATUS_PATH_COPIED, "Yol kopyalandi");
+        tr.put(I18nKey.UI_STATUS_OPEN_FAILED, "Acma basarisiz: %s");
+        tr.put(I18nKey.UI_QUICK_PINNED, "Sabitlenen");
+        tr.put(I18nKey.UI_QUICK_RECENT, "Son");
+        tr.put(I18nKey.UI_QUICK_BUTTON_FORMAT, "%s: %s");
+        tr.put(I18nKey.SETTINGS_SMART_RANKING, "Akilli siralamayi etkinlestir");
+        tr.put(I18nKey.SETTINGS_DISCORD_PRESENCE, "Discord Rich Presence etkinlestir");
+        tr.put(I18nKey.SETTINGS_PERFORMANCE, "Performans");
+        tr.put(I18nKey.SETTINGS_MAX_RESULTS, "Maks sonuc:");
+        tr.put(I18nKey.SETTINGS_LANGUAGE, "Dil:");
+        tr.put(I18nKey.SETTINGS_MAINTENANCE, "Bakim");
+        tr.put(I18nKey.SETTINGS_CLEAR_INDEX_CACHE, "Indeks onbellegini temizle");
+        tr.put(I18nKey.SETTINGS_CLEAR_APP_STATE, "Uygulama durumunu temizle");
+        tr.put(I18nKey.SETTINGS_STATUS_CACHE_CLEARED, "Indeks onbellegi temizlendi");
+        tr.put(I18nKey.SETTINGS_STATUS_APP_STATE_CLEARED, "Uygulama durumu temizlendi");
+        tr.put(I18nKey.SETTINGS_OSS_TEXT, "FinderX acik kaynaklidir.");
+        tr.put(I18nKey.SETTINGS_GITHUB, "GitHub");
+        tr.put(I18nKey.SETTINGS_SUPPORT_TEXT, "FinderX gelistirme ve bakim icin cok zaman ister.");
+        tr.put(I18nKey.SETTINGS_DONATE_BUTTON, "Ko-fi ile destekle");
+        tr.put(I18nKey.SETTINGS_CANCEL, "Iptal");
+        tr.put(I18nKey.SETTINGS_SAVE, "Kaydet");
+        tr.put(I18nKey.SETTINGS_LANGUAGE_APPLIED_ON_REOPEN, "Dil kaydedildi. Yeni metinler icin ayarlari yeniden ac.");
+
+        return Map.of(
+                AppLanguage.ENGLISH, en,
+                AppLanguage.GERMAN, de,
+                AppLanguage.TURKISH, tr
+        );
+    }
+}

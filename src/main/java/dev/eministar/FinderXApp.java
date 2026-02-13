@@ -6,6 +6,10 @@ import dev.eministar.core.FileRecord;
 import dev.eministar.core.IndexProgress;
 import dev.eministar.core.IndexService;
 import dev.eministar.core.UpdateService;
+import dev.eministar.i18n.AppLanguage;
+import dev.eministar.i18n.I18n;
+import dev.eministar.i18n.I18nKey;
+import dev.eministar.ui.SvgIconLoader;
 import dev.eministar.ui.SystemIconProvider;
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
@@ -23,9 +27,10 @@ import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
-import javafx.scene.control.Hyperlink;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.TableCell;
@@ -55,6 +60,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Modality;
 import javafx.stage.Screen;
+import javafx.util.StringConverter;
 import javafx.util.Duration;
 
 import java.awt.Desktop;
@@ -75,6 +81,7 @@ public final class FinderXApp extends Application {
     private static final String APP_VERSION = "v1.0";
     private static final String RELEASE_API = "";
     private static final String GITHUB_URL = "https://github.com/eministar/FinderX";
+    private static final String KOFI_URL = "https://ko-fi.com/eministar";
     private static final double RESIZE_MARGIN = 7.0;
 
     private final IndexService indexService = new IndexService();
@@ -94,6 +101,7 @@ public final class FinderXApp extends Application {
     private Label statusLabel;
     private Label phaseLabel;
     private Label updateLabel;
+    private Label appSubLabel;
     private ProgressBar progressBar;
     private TextField searchField;
     private ComboBox<String> driveSelector;
@@ -102,7 +110,12 @@ public final class FinderXApp extends Application {
     private ToggleButton filesFilterBtn;
     private ToggleButton foldersFilterBtn;
     private CheckBox recentOnlyCheck;
+    private CheckBox smartRankingCheckTop;
+    private Button settingsBtn;
     private FlowPane quickAccessPane;
+    private TableColumn<FileRecord, String> nameCol;
+    private TableColumn<FileRecord, String> typeCol;
+    private TableColumn<FileRecord, String> pathCol;
 
     private double dragOffsetX;
     private double dragOffsetY;
@@ -117,9 +130,91 @@ public final class FinderXApp extends Application {
     private Path activeRoot = Path.of("C:\\");
     private int maxResults = 700;
     private boolean discordPresenceEnabled = true;
+    private AppLanguage appLanguage = AppLanguage.ENGLISH;
+    private String latestUpdateVersion;
 
     private enum ResizeMode {
         NONE, N, S, E, W, NE, NW, SE, SW
+    }
+
+    private String t(I18nKey key, Object... args) {
+        return I18n.tr(appLanguage, key, args);
+    }
+
+    private String localizePhase(String phase) {
+        if (phase == null || phase.isBlank()) {
+            return t(I18nKey.UI_PHASE_READY);
+        }
+        return switch (phase.toLowerCase(Locale.ROOT)) {
+            case "scan" -> t(I18nKey.UI_PHASE_SCAN);
+            case "cache" -> t(I18nKey.UI_PHASE_CACHE);
+            case "build" -> t(I18nKey.UI_PHASE_BUILD);
+            case "search" -> t(I18nKey.UI_PHASE_SEARCH);
+            case "ready", "idle" -> t(I18nKey.UI_PHASE_READY);
+            default -> phase;
+        };
+    }
+
+    private void applyLanguageToMainUi() {
+        if (appSubLabel != null) {
+            appSubLabel.setText(t(I18nKey.APP_SUBTITLE));
+        }
+        if (settingsBtn != null) {
+            settingsBtn.setText(t(I18nKey.UI_SETTINGS));
+        }
+        if (updateLabel != null) {
+            if (latestUpdateVersion == null || latestUpdateVersion.isBlank()) {
+                updateLabel.setText(t(I18nKey.UI_VERSION, APP_VERSION));
+            } else {
+                updateLabel.setText(t(I18nKey.UI_UPDATE_AVAILABLE, latestUpdateVersion));
+            }
+        }
+        if (searchField != null) {
+            searchField.setPromptText(t(I18nKey.UI_SEARCH_PROMPT));
+        }
+        if (allFilterBtn != null) {
+            allFilterBtn.setText(t(I18nKey.UI_FILTER_ALL));
+        }
+        if (filesFilterBtn != null) {
+            filesFilterBtn.setText(t(I18nKey.UI_FILTER_FILES));
+        }
+        if (foldersFilterBtn != null) {
+            foldersFilterBtn.setText(t(I18nKey.UI_FILTER_FOLDERS));
+        }
+        if (extFilterField != null) {
+            extFilterField.setPromptText(t(I18nKey.UI_EXT_FILTER_PROMPT));
+        }
+        if (recentOnlyCheck != null) {
+            recentOnlyCheck.setText(t(I18nKey.UI_RECENT_30D));
+        }
+        if (smartRankingCheckTop != null) {
+            smartRankingCheckTop.setText(t(I18nKey.UI_SMART_RANK_SHORT));
+        }
+        if (table != null) {
+            table.setPlaceholder(new Label(t(I18nKey.UI_TABLE_NO_RESULTS)));
+        }
+        if (nameCol != null) {
+            nameCol.setText(t(I18nKey.UI_COL_NAME));
+        }
+        if (typeCol != null) {
+            typeCol.setText(t(I18nKey.UI_COL_TYPE));
+        }
+        if (pathCol != null) {
+            pathCol.setText(t(I18nKey.UI_COL_PATH));
+        }
+
+        rebuildQuickAccess();
+        String q = searchField == null ? "" : searchField.getText();
+        if (q == null || q.isBlank()) {
+            if (phaseLabel != null) {
+                phaseLabel.setText(t(I18nKey.UI_PHASE_READY));
+            }
+            if (statusLabel != null) {
+                statusLabel.setText(t(I18nKey.UI_STATUS_TYPE_TO_SEARCH));
+            }
+        } else {
+            retriggerSearch();
+        }
     }
 
     public FinderXApp() {
@@ -184,7 +279,7 @@ public final class FinderXApp extends Application {
         if (discordPresenceService != null) {
             discordPresenceService.setEnabled(discordPresenceEnabled);
             discordPresenceService.start();
-            discordPresenceService.updateIdle("Ready to search");
+            discordPresenceService.updateIdle(t(I18nKey.DISCORD_READY));
         }
     }
 
@@ -315,6 +410,7 @@ public final class FinderXApp extends Application {
         appStateStore.saveSelectedRoot(activeRoot.toString());
         appStateStore.saveMaxResults(maxResults);
         appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
+        appStateStore.saveLanguage(appLanguage.code());
         if (discordPresenceService != null) {
             discordPresenceService.stop();
         }
@@ -329,6 +425,7 @@ public final class FinderXApp extends Application {
         indexService.setSmartRankingEnabled(appStateStore.loadSmartRankingEnabled());
         maxResults = Math.max(100, Math.min(5000, appStateStore.loadMaxResults()));
         discordPresenceEnabled = appStateStore.loadDiscordPresenceEnabled();
+        appLanguage = AppLanguage.fromCode(appStateStore.loadLanguage());
         try {
             activeRoot = Path.of(appStateStore.loadSelectedRoot());
         } catch (Exception ignored) {
@@ -398,14 +495,14 @@ public final class FinderXApp extends Application {
 
         Label appTitle = new Label("FinderX");
         appTitle.getStyleClass().add("app-title");
-        Label appSub = new Label("Instant search");
-        appSub.getStyleClass().add("app-subtitle");
+        appSubLabel = new Label(t(I18nKey.APP_SUBTITLE));
+        appSubLabel.getStyleClass().add("app-subtitle");
 
-        VBox appInfo = new VBox(0, appTitle, appSub);
+        VBox appInfo = new VBox(0, appTitle, appSubLabel);
         HBox brand = new HBox(10, logoView, appInfo);
         brand.setAlignment(Pos.CENTER_LEFT);
 
-        updateLabel = new Label("Version " + APP_VERSION);
+        updateLabel = new Label(t(I18nKey.UI_VERSION, APP_VERSION));
         updateLabel.getStyleClass().add("update-label");
 
         driveSelector = new ComboBox<>();
@@ -429,11 +526,11 @@ public final class FinderXApp extends Application {
             appStateStore.saveSelectedRoot(selected);
             startIndexing();
             if (discordPresenceService != null) {
-                discordPresenceService.updateIdle("Browsing " + selected);
+                discordPresenceService.updateIdle(t(I18nKey.DISCORD_BROWSING, selected));
             }
         });
 
-        Button settingsBtn = new Button("Settings");
+        settingsBtn = new Button(t(I18nKey.UI_SETTINGS));
         settingsBtn.getStyleClass().add("settings-btn");
         settingsBtn.setPrefHeight(34);
         settingsBtn.setMinHeight(34);
@@ -451,13 +548,13 @@ public final class FinderXApp extends Application {
         headline.setAlignment(Pos.CENTER_LEFT);
 
         searchField = new TextField();
-        searchField.setPromptText("Search files and folders...");
+        searchField.setPromptText(t(I18nKey.UI_SEARCH_PROMPT));
         searchField.getStyleClass().add("search-field");
         HBox.setHgrow(searchField, Priority.ALWAYS);
 
-        allFilterBtn = new ToggleButton("All");
-        filesFilterBtn = new ToggleButton("Files");
-        foldersFilterBtn = new ToggleButton("Folders");
+        allFilterBtn = new ToggleButton(t(I18nKey.UI_FILTER_ALL));
+        filesFilterBtn = new ToggleButton(t(I18nKey.UI_FILTER_FILES));
+        foldersFilterBtn = new ToggleButton(t(I18nKey.UI_FILTER_FOLDERS));
         ToggleGroup group = new ToggleGroup();
         allFilterBtn.setToggleGroup(group);
         filesFilterBtn.setToggleGroup(group);
@@ -469,23 +566,23 @@ public final class FinderXApp extends Application {
         foldersFilterBtn.getStyleClass().add("filter-chip");
 
         extFilterField = new TextField();
-        extFilterField.setPromptText("ext: pdf");
+        extFilterField.setPromptText(t(I18nKey.UI_EXT_FILTER_PROMPT));
         extFilterField.getStyleClass().add("chip-input");
         extFilterField.setPrefWidth(120);
 
-        recentOnlyCheck = new CheckBox("30d");
+        recentOnlyCheck = new CheckBox(t(I18nKey.UI_RECENT_30D));
         recentOnlyCheck.getStyleClass().add("chip-check");
 
-        CheckBox smartRankingCheck = new CheckBox("Smart rank");
-        smartRankingCheck.setSelected(indexService.isSmartRankingEnabled());
-        smartRankingCheck.getStyleClass().add("chip-check");
-        smartRankingCheck.selectedProperty().addListener((obs, old, val) -> {
+        smartRankingCheckTop = new CheckBox(t(I18nKey.UI_SMART_RANK_SHORT));
+        smartRankingCheckTop.setSelected(indexService.isSmartRankingEnabled());
+        smartRankingCheckTop.getStyleClass().add("chip-check");
+        smartRankingCheckTop.selectedProperty().addListener((obs, old, val) -> {
             indexService.setSmartRankingEnabled(val);
             appStateStore.saveSmartRankingEnabled(val);
             retriggerSearch();
         });
 
-        HBox filterRow = new HBox(8, allFilterBtn, filesFilterBtn, foldersFilterBtn, extFilterField, recentOnlyCheck, smartRankingCheck);
+        HBox filterRow = new HBox(8, allFilterBtn, filesFilterBtn, foldersFilterBtn, extFilterField, recentOnlyCheck, smartRankingCheckTop);
         filterRow.setAlignment(Pos.CENTER_LEFT);
 
         HBox searchRow = new HBox(10, searchField);
@@ -510,10 +607,10 @@ public final class FinderXApp extends Application {
             String q = searchField.getText();
             if (q == null || q.isBlank()) {
                 rows.clear();
-                phaseLabel.setText("Ready");
-                statusLabel.setText("Type to search");
+                phaseLabel.setText(t(I18nKey.UI_PHASE_READY));
+                statusLabel.setText(t(I18nKey.UI_STATUS_TYPE_TO_SEARCH));
                 if (discordPresenceService != null) {
-                    discordPresenceService.updateIdle("Ready to search");
+                    discordPresenceService.updateIdle(t(I18nKey.DISCORD_READY));
                 }
                 return;
             }
@@ -526,10 +623,10 @@ public final class FinderXApp extends Application {
     private TableView<FileRecord> buildResultsPane() {
         table = new TableView<>(rows);
         table.getStyleClass().add("file-table");
-        table.setPlaceholder(new Label("No results"));
+        table.setPlaceholder(new Label(t(I18nKey.UI_TABLE_NO_RESULTS)));
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_SUBSEQUENT_COLUMNS);
 
-        TableColumn<FileRecord, String> nameCol = new TableColumn<>("Name");
+        nameCol = new TableColumn<>(t(I18nKey.UI_COL_NAME));
         nameCol.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().name()));
         nameCol.setPrefWidth(420);
         nameCol.setCellFactory(col -> new TableCell<>() {
@@ -558,11 +655,11 @@ public final class FinderXApp extends Application {
             }
         });
 
-        TableColumn<FileRecord, String> typeCol = new TableColumn<>("Type");
+        typeCol = new TableColumn<>(t(I18nKey.UI_COL_TYPE));
         typeCol.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().extension()));
         typeCol.setPrefWidth(120);
 
-        TableColumn<FileRecord, String> pathCol = new TableColumn<>("Path");
+        pathCol = new TableColumn<>(t(I18nKey.UI_COL_PATH));
         pathCol.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().path().toString()));
         pathCol.setPrefWidth(860);
 
@@ -586,10 +683,10 @@ public final class FinderXApp extends Application {
         progressBar.getStyleClass().add("index-progress");
         progressBar.setPrefWidth(220);
 
-        phaseLabel = new Label("Initializing");
+        phaseLabel = new Label(t(I18nKey.UI_PHASE_INITIALIZING));
         phaseLabel.getStyleClass().add("phase-label");
 
-        statusLabel = new Label("Preparing index...");
+        statusLabel = new Label(t(I18nKey.UI_STATUS_PREPARING_INDEX));
         statusLabel.getStyleClass().add("status-label");
 
         Region spacer = new Region();
@@ -603,21 +700,21 @@ public final class FinderXApp extends Application {
     }
 
     private ContextMenu buildContextMenu(TableRow<FileRecord> row) {
-        MenuItem open = new MenuItem("Open");
+        MenuItem open = new MenuItem(t(I18nKey.UI_MENU_OPEN));
         open.setOnAction(e -> {
             if (!row.isEmpty()) {
                 openRecord(row.getItem());
             }
         });
 
-        MenuItem openParent = new MenuItem("Open parent folder");
+        MenuItem openParent = new MenuItem(t(I18nKey.UI_MENU_OPEN_PARENT));
         openParent.setOnAction(e -> {
             if (!row.isEmpty() && row.getItem().parent() != null) {
                 openPath(row.getItem().parent());
             }
         });
 
-        MenuItem pinToggle = new MenuItem("Pin/Unpin");
+        MenuItem pinToggle = new MenuItem(t(I18nKey.UI_MENU_PIN_TOGGLE));
         pinToggle.setOnAction(e -> {
             if (row.isEmpty()) {
                 return;
@@ -630,7 +727,7 @@ public final class FinderXApp extends Application {
             rebuildQuickAccess();
         });
 
-        MenuItem copyPath = new MenuItem("Copy path");
+        MenuItem copyPath = new MenuItem(t(I18nKey.UI_MENU_COPY_PATH));
         copyPath.setOnAction(e -> {
             if (!row.isEmpty()) {
                 ClipboardContent content = new ClipboardContent();
@@ -639,7 +736,7 @@ public final class FinderXApp extends Application {
             }
         });
 
-        MenuItem delete = new MenuItem("Delete");
+        MenuItem delete = new MenuItem(t(I18nKey.UI_MENU_DELETE));
         delete.setOnAction(e -> {
             if (row.isEmpty()) {
                 return;
@@ -648,7 +745,7 @@ public final class FinderXApp extends Application {
                 Files.deleteIfExists(row.getItem().path());
                 rows.remove(row.getItem());
             } catch (IOException ex) {
-                statusLabel.setText("Delete failed: " + ex.getMessage());
+                statusLabel.setText(t(I18nKey.UI_STATUS_DELETE_FAILED, ex.getMessage()));
             }
         });
         return new ContextMenu(open, openParent, pinToggle, copyPath, delete);
@@ -674,7 +771,7 @@ public final class FinderXApp extends Application {
         ClipboardContent content = new ClipboardContent();
         content.putString(selected.path().toString());
         Clipboard.getSystemClipboard().setContent(content);
-        statusLabel.setText("Path copied");
+        statusLabel.setText(t(I18nKey.UI_STATUS_PATH_COPIED));
     }
 
     private void openParentFromSelection() {
@@ -688,7 +785,7 @@ public final class FinderXApp extends Application {
     private void startIndexing() {
         indexService.startIndex(activeRoot, this::onIndexProgress);
         rows.clear();
-        statusLabel.setText("Type to search");
+        statusLabel.setText(t(I18nKey.UI_STATUS_TYPE_TO_SEARCH));
         if (discordPresenceService != null) {
             discordPresenceService.updateIndexing(activeRoot.toString(), 0);
         }
@@ -697,19 +794,19 @@ public final class FinderXApp extends Application {
     private void onIndexProgress(IndexProgress progress) {
         Platform.runLater(() -> {
             if (progress.running()) {
-                statusLabel.setText("Indexing: " + progress.filesIndexed() + " files / " + progress.directoriesIndexed() + " folders");
+                statusLabel.setText(t(I18nKey.UI_STATUS_INDEXING, progress.filesIndexed(), progress.directoriesIndexed()));
                 progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-                phaseLabel.setText(progress.phase());
+                phaseLabel.setText(localizePhase(progress.phase()));
                 if (discordPresenceService != null) {
                     discordPresenceService.updateIndexing(activeRoot.toString(), progress.filesIndexed());
                 }
             } else {
-                statusLabel.setText(progress.currentPath());
+                statusLabel.setText(t(I18nKey.UI_STATUS_INDEX_READY, progress.filesIndexed(), progress.directoriesIndexed()));
                 progressBar.setProgress(1.0);
-                phaseLabel.setText("Ready");
+                phaseLabel.setText(t(I18nKey.UI_PHASE_READY));
                 retriggerSearch();
                 if (discordPresenceService != null) {
-                    discordPresenceService.updateIdle("Ready to search");
+                    discordPresenceService.updateIdle(t(I18nKey.DISCORD_READY));
                 }
             }
         });
@@ -717,7 +814,10 @@ public final class FinderXApp extends Application {
 
     private void checkForUpdates() {
         updateService.checkLatestVersionAsync(RELEASE_API, APP_VERSION)
-                .thenAccept(update -> Platform.runLater(() -> update.ifPresent(v -> updateLabel.setText("Update " + v + " available"))));
+                .thenAccept(update -> Platform.runLater(() -> update.ifPresent(v -> {
+                    latestUpdateVersion = v;
+                    updateLabel.setText(t(I18nKey.UI_UPDATE_AVAILABLE, v));
+                })));
     }
 
     private void retriggerSearch() {
@@ -730,7 +830,7 @@ public final class FinderXApp extends Application {
 
     private void runSearch(String query) {
         long gen = searchGeneration.incrementAndGet();
-        phaseLabel.setText("Search");
+        phaseLabel.setText(t(I18nKey.UI_PHASE_SEARCH));
         int limit = maxResults;
         indexService.searchAsync(query, limit).thenAccept(found -> Platform.runLater(() -> {
             if (gen != searchGeneration.get()) {
@@ -738,7 +838,7 @@ public final class FinderXApp extends Application {
             }
             List<FileRecord> filtered = applyFilters(found);
             rows.setAll(filtered);
-            statusLabel.setText(filtered.size() + " results");
+            statusLabel.setText(t(I18nKey.UI_RESULTS_COUNT, filtered.size()));
             if (discordPresenceService != null) {
                 discordPresenceService.updateSearch(query, filtered.size(), activeRoot.toString());
             }
@@ -784,7 +884,7 @@ public final class FinderXApp extends Application {
         try {
             Desktop.getDesktop().open(path.toFile());
         } catch (IOException ex) {
-            statusLabel.setText("Open failed: " + ex.getMessage());
+            statusLabel.setText(t(I18nKey.UI_STATUS_OPEN_FAILED, ex.getMessage()));
         }
     }
 
@@ -805,7 +905,7 @@ public final class FinderXApp extends Application {
         quickAccessPane.getChildren().clear();
 
         for (Path path : pinnedPaths) {
-            Button btn = quickAccessButton("Pinned", path);
+            Button btn = quickAccessButton(t(I18nKey.UI_QUICK_PINNED), path);
             quickAccessPane.getChildren().add(btn);
         }
 
@@ -814,7 +914,7 @@ public final class FinderXApp extends Application {
             if (shownRecent >= 8) {
                 break;
             }
-            Button btn = quickAccessButton("Recent", path);
+            Button btn = quickAccessButton(t(I18nKey.UI_QUICK_RECENT), path);
             quickAccessPane.getChildren().add(btn);
             shownRecent++;
         }
@@ -825,50 +925,110 @@ public final class FinderXApp extends Application {
         if (name.length() > 28) {
             name = name.substring(0, 27) + "...";
         }
-        Button btn = new Button(prefix + ": " + name);
+        Button btn = new Button(t(I18nKey.UI_QUICK_BUTTON_FORMAT, prefix, name));
         btn.getStyleClass().add("quick-chip");
         btn.setOnAction(e -> openPath(path));
         return btn;
     }
 
     private void showSettingsDialog() {
-        CheckBox smartRank = new CheckBox("Enable smart ranking");
+        CheckBox smartRank = new CheckBox(t(I18nKey.SETTINGS_SMART_RANKING));
         smartRank.setSelected(indexService.isSmartRankingEnabled());
         smartRank.getStyleClass().add("chip-check");
-        CheckBox discordPresence = new CheckBox("Enable Discord Rich Presence");
+        CheckBox discordPresence = new CheckBox(t(I18nKey.SETTINGS_DISCORD_PRESENCE));
         discordPresence.setSelected(discordPresenceEnabled);
         discordPresence.getStyleClass().add("chip-check");
+
+        ComboBox<AppLanguage> languageSelector = new ComboBox<>();
+        languageSelector.getItems().addAll(AppLanguage.values());
+        languageSelector.setValue(appLanguage);
+        languageSelector.getStyleClass().add("settings-combo");
+        languageSelector.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(AppLanguage language) {
+                return language == null ? "" : language.displayName();
+            }
+
+            @Override
+            public AppLanguage fromString(String string) {
+                return appLanguage;
+            }
+        });
+        languageSelector.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(AppLanguage item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText("");
+                    setGraphic(null);
+                    return;
+                }
+                ImageView flagIcon = new ImageView(SvgIconLoader.load(item.flagSvgPath(), 22, 14));
+                flagIcon.setFitWidth(22);
+                flagIcon.setFitHeight(14);
+                Label text = new Label(item.displayName());
+                text.getStyleClass().add("settings-label");
+                HBox row = new HBox(8, flagIcon, text);
+                row.setAlignment(Pos.CENTER_LEFT);
+                setText(null);
+                setGraphic(row);
+            }
+        });
+        languageSelector.setCellFactory(list -> new ListCell<>() {
+            @Override
+            protected void updateItem(AppLanguage item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText("");
+                    setGraphic(null);
+                    return;
+                }
+                ImageView flagIcon = new ImageView(SvgIconLoader.load(item.flagSvgPath(), 22, 14));
+                flagIcon.setFitWidth(22);
+                flagIcon.setFitHeight(14);
+                Label text = new Label(item.displayName());
+                text.getStyleClass().add("settings-label");
+                HBox row = new HBox(8, flagIcon, text);
+                row.setAlignment(Pos.CENTER_LEFT);
+                setText(null);
+                setGraphic(row);
+            }
+        });
 
         Spinner<Integer> maxResultsSpinner = new Spinner<>(100, 5000, maxResults, 100);
         maxResultsSpinner.setEditable(true);
         maxResultsSpinner.getStyleClass().add("settings-spinner");
 
-        Button clearCacheBtn = new Button("Clear index cache");
+        Button clearCacheBtn = new Button(t(I18nKey.SETTINGS_CLEAR_INDEX_CACHE));
         clearCacheBtn.getStyleClass().add("settings-btn");
         clearCacheBtn.setOnAction(e -> {
             indexService.clearIndexCache();
-            statusLabel.setText("Index cache cleared");
+            statusLabel.setText(t(I18nKey.SETTINGS_STATUS_CACHE_CLEARED));
         });
 
-        Button clearStateBtn = new Button("Clear app state");
+        Button clearStateBtn = new Button(t(I18nKey.SETTINGS_CLEAR_APP_STATE));
         clearStateBtn.getStyleClass().add("settings-btn");
         clearStateBtn.setOnAction(e -> {
             appStateStore.clearAllState();
             pinnedPaths.clear();
             recentPaths.clear();
             rebuildQuickAccess();
-            statusLabel.setText("App state cleared");
+            statusLabel.setText(t(I18nKey.SETTINGS_STATUS_APP_STATE_CLEARED));
         });
 
-        Label perfLabel = new Label("Performance");
+        Label perfLabel = new Label(t(I18nKey.SETTINGS_PERFORMANCE));
         perfLabel.getStyleClass().add("settings-section");
-        Label maxLabel = new Label("Max results:");
+        Label maxLabel = new Label(t(I18nKey.SETTINGS_MAX_RESULTS));
         maxLabel.getStyleClass().add("settings-label");
+        Label languageLabel = new Label(t(I18nKey.SETTINGS_LANGUAGE));
+        languageLabel.getStyleClass().add("settings-label");
 
         HBox maxRow = new HBox(10, maxLabel, maxResultsSpinner);
         maxRow.setAlignment(Pos.CENTER_LEFT);
+        HBox languageRow = new HBox(10, languageLabel, languageSelector);
+        languageRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label maintenanceLabel = new Label("Maintenance");
+        Label maintenanceLabel = new Label(t(I18nKey.SETTINGS_MAINTENANCE));
         maintenanceLabel.getStyleClass().add("settings-section");
 
         ImageView githubIcon = new ImageView();
@@ -878,14 +1038,61 @@ public final class FinderXApp extends Application {
         }
         githubIcon.setFitWidth(18);
         githubIcon.setFitHeight(18);
-        Label ossText = new Label("FinderX is open source.");
+        githubIcon.setPreserveRatio(true);
+        githubIcon.setSmooth(true);
+        Label ossText = new Label(t(I18nKey.SETTINGS_OSS_TEXT));
         ossText.getStyleClass().add("settings-label");
-        Hyperlink githubLink = new Hyperlink("GitHub");
-        githubLink.getStyleClass().add("settings-link");
-        githubLink.setOnAction(e -> openInBrowser(GITHUB_URL));
-        HBox ossRow = new HBox(8, githubIcon, ossText, githubLink);
+        Label githubTitle = new Label(t(I18nKey.SETTINGS_GITHUB));
+        githubTitle.getStyleClass().add("settings-card-title");
+        Region githubSpacer = new Region();
+        HBox.setHgrow(githubSpacer, Priority.ALWAYS);
+        Label githubArrow = new Label(">");
+        githubArrow.getStyleClass().add("settings-card-arrow");
+        HBox ossRow = new HBox(10, githubIcon, ossText, githubSpacer, githubTitle, githubArrow);
         ossRow.setAlignment(Pos.CENTER_LEFT);
-        ossRow.getStyleClass().add("settings-oss");
+
+        Button githubCard = new Button();
+        githubCard.setGraphic(ossRow);
+        githubCard.setMaxWidth(Double.MAX_VALUE);
+        githubCard.setAlignment(Pos.CENTER_LEFT);
+        githubCard.getStyleClass().add("settings-link-card");
+        githubCard.setOnAction(e -> openInBrowser(GITHUB_URL));
+
+        ImageView kofiIcon = new ImageView();
+        var kofiStream = getClass().getResourceAsStream("/icons/kofi-icon.png");
+        if (kofiStream != null) {
+            Image icon = new Image(kofiStream, 22, 22, true, true);
+            if (!icon.isError()) {
+                kofiIcon.setImage(icon);
+            }
+        }
+        kofiIcon.setFitWidth(22);
+        kofiIcon.setFitHeight(22);
+        kofiIcon.setPreserveRatio(true);
+        kofiIcon.setSmooth(true);
+        Label supportText = new Label(t(I18nKey.SETTINGS_SUPPORT_TEXT));
+        supportText.getStyleClass().add("settings-label");
+        supportText.setWrapText(false);
+        Label donateTitle = new Label(t(I18nKey.SETTINGS_DONATE_BUTTON));
+        donateTitle.getStyleClass().add("settings-card-title");
+        Region donateSpacer = new Region();
+        HBox.setHgrow(donateSpacer, Priority.ALWAYS);
+        Label donateArrow = new Label(">");
+        donateArrow.getStyleClass().add("settings-card-arrow");
+        Label coffeeFallback = new Label("\u2615");
+        coffeeFallback.getStyleClass().add("settings-icon-fallback");
+        coffeeFallback.setVisible(kofiIcon.getImage() == null);
+        coffeeFallback.setManaged(kofiIcon.getImage() == null);
+        HBox supportRow = new HBox(10, kofiIcon, coffeeFallback, supportText, donateSpacer, donateTitle, donateArrow);
+        HBox.setHgrow(supportText, Priority.ALWAYS);
+        supportRow.setAlignment(Pos.CENTER_LEFT);
+
+        Button donateCard = new Button();
+        donateCard.setGraphic(supportRow);
+        donateCard.setMaxWidth(Double.MAX_VALUE);
+        donateCard.setAlignment(Pos.CENTER_LEFT);
+        donateCard.getStyleClass().add("settings-link-card");
+        donateCard.setOnAction(e -> openInBrowser(KOFI_URL));
 
         VBox content = new VBox(
                 10,
@@ -893,16 +1100,23 @@ public final class FinderXApp extends Application {
                 smartRank,
                 discordPresence,
                 maxRow,
+                languageRow,
                 new Separator(),
                 maintenanceLabel,
                 clearCacheBtn,
                 clearStateBtn,
                 new Separator(),
-                ossRow
+                githubCard,
+                donateCard
         );
         content.getStyleClass().add("settings-content");
+        ScrollPane contentScroll = new ScrollPane(content);
+        contentScroll.setFitToWidth(true);
+        contentScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        contentScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        contentScroll.getStyleClass().add("settings-scroll");
 
-        Label title = new Label("Settings");
+        Label title = new Label(t(I18nKey.UI_SETTINGS));
         title.getStyleClass().add("settings-title");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -913,9 +1127,9 @@ public final class FinderXApp extends Application {
         header.getStyleClass().add("settings-header");
         header.setAlignment(Pos.CENTER_LEFT);
 
-        Button cancelBtn = new Button("Cancel");
+        Button cancelBtn = new Button(t(I18nKey.SETTINGS_CANCEL));
         cancelBtn.getStyleClass().add("settings-btn");
-        Button saveBtn = new Button("Save");
+        Button saveBtn = new Button(t(I18nKey.SETTINGS_SAVE));
         saveBtn.getStyleClass().addAll("settings-btn", "settings-btn-primary");
         HBox actions = new HBox(10, cancelBtn, saveBtn);
         actions.getStyleClass().add("settings-actions");
@@ -924,7 +1138,7 @@ public final class FinderXApp extends Application {
         BorderPane window = new BorderPane();
         window.getStyleClass().add("settings-window");
         window.setTop(header);
-        window.setCenter(content);
+        window.setCenter(contentScroll);
         window.setBottom(actions);
 
         Rectangle clip = new Rectangle();
@@ -940,7 +1154,7 @@ public final class FinderXApp extends Application {
         }
         modal.initModality(Modality.WINDOW_MODAL);
 
-        Scene scene = new Scene(window, 400, 390);
+        Scene scene = new Scene(window, 500, 520);
         scene.setFill(Color.TRANSPARENT);
         scene.getStylesheets().add(getClass().getResource("/theme/dark-glass.css").toExternalForm());
         modal.setScene(scene);
@@ -954,11 +1168,14 @@ public final class FinderXApp extends Application {
             appStateStore.saveMaxResults(maxResults);
             discordPresenceEnabled = discordPresence.isSelected();
             appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
+            appLanguage = languageSelector.getValue() == null ? AppLanguage.ENGLISH : languageSelector.getValue();
+            appStateStore.saveLanguage(appLanguage.code());
+            applyLanguageToMainUi();
             if (discordPresenceService != null) {
                 discordPresenceService.setEnabled(discordPresenceEnabled);
                 if (discordPresenceEnabled) {
                     discordPresenceService.start();
-                    discordPresenceService.updateIdle("Ready to search");
+                    discordPresenceService.updateIdle(t(I18nKey.DISCORD_READY));
                 } else {
                     discordPresenceService.stop();
                 }
