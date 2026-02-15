@@ -24,7 +24,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -32,10 +31,9 @@ import java.util.zip.GZIPOutputStream;
 public final class IndexService {
     private static final Base64.Encoder B64_ENC = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder B64_DEC = Base64.getUrlDecoder();
-    private static final int SCAN_BATCH_BEFORE_YIELD = 512;
-    private static final long SCAN_YIELD_NANOS = 1_500_000L;
+    private static final int PARALLEL_BUILD_THRESHOLD = 200_000;
 
-    private final int scanWorkers = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() / 2));
+    private final int scanWorkers = Math.max(4, Math.min(24, Runtime.getRuntime().availableProcessors() * 2));
     private final int searchWorkers = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
 
     private final ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -47,7 +45,6 @@ public final class IndexService {
     private final ExecutorService scanExecutor = Executors.newFixedThreadPool(scanWorkers, r -> {
         Thread t = new Thread(r, "scan-worker");
         t.setDaemon(true);
-        t.setPriority(Thread.MIN_PRIORITY);
         return t;
     });
     private final ExecutorService searchExecutor = Executors.newFixedThreadPool(searchWorkers, r -> {
@@ -302,7 +299,7 @@ public final class IndexService {
                             if (directoryQueue.isEmpty() && activeWorkers.get() == 0) {
                                 return;
                             }
-                            LockSupport.parkNanos(400_000L);
+                            Thread.onSpinWait();
                             continue;
                         }
                         activeWorkers.incrementAndGet();
@@ -335,7 +332,6 @@ public final class IndexService {
             AtomicLong dirs,
             Consumer<IndexProgress> progressConsumer
     ) {
-        int scannedSinceYield = 0;
         try (var stream = Files.newDirectoryStream(directory)) {
             for (Path child : stream) {
                 try {
@@ -357,10 +353,6 @@ public final class IndexService {
                         if ((f & 4095L) == 0L) {
                             progressConsumer.accept(new IndexProgress(f, dirs.get(), true, child.toString(), "scan"));
                         }
-                    }
-                    scannedSinceYield++;
-                    if ((scannedSinceYield & (SCAN_BATCH_BEFORE_YIELD - 1)) == 0) {
-                        LockSupport.parkNanos(SCAN_YIELD_NANOS);
                     }
                 } catch (Exception ignored) {
                 }
@@ -498,6 +490,10 @@ public final class IndexService {
     }
 
     private List<FileRecord> buildSnapshot(List<TempRecord> harvested) {
+        if (harvested.size() >= PARALLEL_BUILD_THRESHOLD) {
+            return buildSnapshotParallel(harvested);
+        }
+
         List<FileRecord> builtRecords = new ArrayList<>(harvested.size());
         Map<Path, List<Integer>> builtChildrenByParent = new HashMap<>(Math.max(1024, harvested.size() / 8));
         String[] builtNamesLower = new String[harvested.size()];
@@ -544,6 +540,98 @@ public final class IndexService {
         return this.records;
     }
 
+    private List<FileRecord> buildSnapshotParallel(List<TempRecord> harvested) {
+        int size = harvested.size();
+        FileRecord[] builtRecordArray = new FileRecord[size];
+        String[] builtNamesLower = new String[size];
+
+        int workers = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 16));
+        int chunkSize = Math.max(8_192, (size + workers - 1) / workers);
+        List<CompletableFuture<BuildChunk>> futures = new ArrayList<>();
+
+        for (int start = 0; start < size; start += chunkSize) {
+            int from = start;
+            int to = Math.min(size, from + chunkSize);
+            futures.add(CompletableFuture.supplyAsync(() -> buildChunk(harvested, from, to, builtRecordArray, builtNamesLower)));
+        }
+
+        Map<Path, List<Integer>> builtChildrenByParent = new HashMap<>(Math.max(1024, size / 8));
+        Map<Character, List<Integer>> charBuckets = new HashMap<>();
+
+        for (CompletableFuture<BuildChunk> future : futures) {
+            BuildChunk chunk = future.join();
+
+            for (Map.Entry<Path, List<Integer>> entry : chunk.childrenByParent().entrySet()) {
+                builtChildrenByParent.computeIfAbsent(entry.getKey(), key -> new ArrayList<>(entry.getValue().size()))
+                        .addAll(entry.getValue());
+            }
+
+            for (Map.Entry<Character, List<Integer>> entry : chunk.charBuckets().entrySet()) {
+                charBuckets.computeIfAbsent(entry.getKey(), key -> new ArrayList<>(entry.getValue().size()))
+                        .addAll(entry.getValue());
+            }
+        }
+
+        List<FileRecord> builtRecords = Collections.unmodifiableList(List.of(builtRecordArray));
+        Map<Character, int[]> packedBuckets = packCharBuckets(charBuckets);
+
+        this.records = builtRecords;
+        this.childrenByParent = Map.copyOf(builtChildrenByParent);
+        this.namesLower = builtNamesLower;
+        this.firstCharBuckets = Map.copyOf(packedBuckets);
+        this.fullRangeIds = ensureFullRange(builtRecords.size());
+        return this.records;
+    }
+
+    private BuildChunk buildChunk(
+            List<TempRecord> harvested,
+            int fromInclusive,
+            int toExclusive,
+            FileRecord[] builtRecordArray,
+            String[] builtNamesLower
+    ) {
+        Map<Path, List<Integer>> localChildrenByParent = new HashMap<>();
+        Map<Character, List<Integer>> localCharBuckets = new HashMap<>();
+
+        for (int id = fromInclusive; id < toExclusive; id++) {
+            TempRecord item = harvested.get(id);
+            FileRecord record = new FileRecord(
+                    id,
+                    item.path(),
+                    item.parent(),
+                    item.name(),
+                    item.nameLower(),
+                    item.directory(),
+                    item.size(),
+                    item.modifiedEpochMillis()
+            );
+            builtRecordArray[id] = record;
+            builtNamesLower[id] = item.nameLower();
+
+            char bucketKey = item.nameLower().isEmpty() ? '#' : item.nameLower().charAt(0);
+            localCharBuckets.computeIfAbsent(bucketKey, key -> new ArrayList<>(256)).add(id);
+
+            if (item.parent() != null) {
+                localChildrenByParent.computeIfAbsent(item.parent(), key -> new ArrayList<>(24)).add(id);
+            }
+        }
+
+        return new BuildChunk(localChildrenByParent, localCharBuckets);
+    }
+
+    private static Map<Character, int[]> packCharBuckets(Map<Character, List<Integer>> charBuckets) {
+        Map<Character, int[]> packedBuckets = new HashMap<>(charBuckets.size());
+        for (Map.Entry<Character, List<Integer>> e : charBuckets.entrySet()) {
+            List<Integer> ids = e.getValue();
+            int[] packed = new int[ids.size()];
+            for (int i = 0; i < ids.size(); i++) {
+                packed[i] = ids.get(i);
+            }
+            packedBuckets.put(e.getKey(), packed);
+        }
+        return packedBuckets;
+    }
+
     private int usageScore(Path path) {
         return usageScores.getOrDefault(normalizePathKey(path), 0);
     }
@@ -572,6 +660,12 @@ public final class IndexService {
             boolean directory,
             long size,
             long modifiedEpochMillis
+    ) {
+    }
+
+    private record BuildChunk(
+            Map<Path, List<Integer>> childrenByParent,
+            Map<Character, List<Integer>> charBuckets
     ) {
     }
 }
