@@ -6,9 +6,9 @@ import dev.eministar.core.FileRecord;
 import dev.eministar.core.IndexProgress;
 import dev.eministar.core.IndexService;
 import dev.eministar.core.UpdateService;
-import dev.eministar.i18n.AppLanguage;
 import dev.eministar.i18n.I18n;
 import dev.eministar.i18n.I18nKey;
+import dev.eministar.i18n.LanguageOption;
 import dev.eministar.ui.SvgIconLoader;
 import dev.eministar.ui.SystemIconProvider;
 import javafx.animation.PauseTransition;
@@ -106,6 +106,7 @@ public final class FinderXApp extends Application {
     private TableView<FileRecord> table;
     private Label statusLabel;
     private Label phaseLabel;
+    private Label autoTuneLabel;
     private Label updateLabel;
     private Label appSubLabel;
     private ProgressBar progressBar;
@@ -136,7 +137,7 @@ public final class FinderXApp extends Application {
     private Path activeRoot = Path.of("C:\\");
     private int maxResults = 700;
     private boolean discordPresenceEnabled = true;
-    private AppLanguage appLanguage = AppLanguage.ENGLISH;
+    private String appLanguageCode = "en";
     private String latestUpdateVersion;
     private boolean customThemeEnabled;
     private String selectedThemeFile = "";
@@ -166,7 +167,7 @@ public final class FinderXApp extends Application {
     }
 
     private String t(I18nKey key, Object... args) {
-        return I18n.tr(appLanguage, key, args);
+        return I18n.tr(appLanguageCode, key, args);
     }
 
     private String localizePhase(String phase) {
@@ -598,7 +599,7 @@ public final class FinderXApp extends Application {
         appStateStore.saveSelectedRoot(activeRoot.toString());
         appStateStore.saveMaxResults(maxResults);
         appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
-        appStateStore.saveLanguage(appLanguage.code());
+        appStateStore.saveLanguage(appLanguageCode);
         appStateStore.saveCustomThemeEnabled(customThemeEnabled);
         appStateStore.saveSelectedThemeFile(selectedThemeFile);
         if (discordPresenceService != null) {
@@ -609,13 +610,14 @@ public final class FinderXApp extends Application {
     }
 
     private void loadState() {
+        I18n.initialize();
         pinnedPaths.addAll(appStateStore.loadPinned());
         recentPaths.addAll(appStateStore.loadRecent());
         indexService.setUsageScores(appStateStore.loadUsageScores());
         indexService.setSmartRankingEnabled(appStateStore.loadSmartRankingEnabled());
         maxResults = Math.max(100, Math.min(5000, appStateStore.loadMaxResults()));
         discordPresenceEnabled = appStateStore.loadDiscordPresenceEnabled();
-        appLanguage = AppLanguage.fromCode(appStateStore.loadLanguage());
+        appLanguageCode = I18n.resolveLanguageCode(appStateStore.loadLanguage());
         customThemeEnabled = appStateStore.loadCustomThemeEnabled();
         selectedThemeFile = appStateStore.loadSelectedThemeFile();
         ensureOfficialThemeFiles();
@@ -879,13 +881,18 @@ public final class FinderXApp extends Application {
         phaseLabel = new Label(t(I18nKey.UI_PHASE_INITIALIZING));
         phaseLabel.getStyleClass().add("phase-label");
 
+        autoTuneLabel = new Label("");
+        autoTuneLabel.getStyleClass().add("phase-label");
+        autoTuneLabel.setVisible(false);
+        autoTuneLabel.setManaged(false);
+
         statusLabel = new Label(t(I18nKey.UI_STATUS_PREPARING_INDEX));
         statusLabel.getStyleClass().add("status-label");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox bar = new HBox(12, phaseLabel, progressBar, spacer, statusLabel);
+        HBox bar = new HBox(12, phaseLabel, progressBar, autoTuneLabel, spacer, statusLabel);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(10, 12, 10, 12));
         bar.getStyleClass().add("bottom-bar");
@@ -990,6 +997,22 @@ public final class FinderXApp extends Application {
                 statusLabel.setText(t(I18nKey.UI_STATUS_INDEXING, progress.filesIndexed(), progress.directoriesIndexed()));
                 progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
                 phaseLabel.setText(localizePhase(progress.phase()));
+                if (autoTuneLabel != null) {
+                    boolean show = "scan".equalsIgnoreCase(progress.phase()) && progress.autoTuneActive();
+                    autoTuneLabel.setVisible(show);
+                    autoTuneLabel.setManaged(show);
+                    if (show) {
+                        autoTuneLabel.setText(t(
+                                I18nKey.UI_AUTOTUNE_STATUS,
+                                progress.activeWorkers(),
+                                progress.maxWorkers(),
+                                formatRate(progress.itemsPerSecond()),
+                                progress.queueDepth()
+                        ));
+                    } else {
+                        autoTuneLabel.setText("");
+                    }
+                }
                 if (discordPresenceService != null) {
                     discordPresenceService.updateIndexing(activeRoot.toString(), progress.filesIndexed());
                 }
@@ -997,12 +1020,30 @@ public final class FinderXApp extends Application {
                 statusLabel.setText(t(I18nKey.UI_STATUS_INDEX_READY, progress.filesIndexed(), progress.directoriesIndexed()));
                 progressBar.setProgress(1.0);
                 phaseLabel.setText(t(I18nKey.UI_PHASE_READY));
+                if (autoTuneLabel != null) {
+                    autoTuneLabel.setText("");
+                    autoTuneLabel.setVisible(false);
+                    autoTuneLabel.setManaged(false);
+                }
                 retriggerSearch();
                 if (discordPresenceService != null) {
                     discordPresenceService.updateIdle(t(I18nKey.DISCORD_READY));
                 }
             }
         });
+    }
+
+    private String formatRate(long itemsPerSecond) {
+        if (itemsPerSecond < 0) {
+            return "-";
+        }
+        if (itemsPerSecond >= 1_000_000L) {
+            return String.format(Locale.ROOT, "%.1fM", itemsPerSecond / 1_000_000.0);
+        }
+        if (itemsPerSecond >= 1_000L) {
+            return String.format(Locale.ROOT, "%.1fk", itemsPerSecond / 1_000.0);
+        }
+        return Long.toString(itemsPerSecond);
     }
 
     private void checkForUpdates() {
@@ -1124,6 +1165,17 @@ public final class FinderXApp extends Application {
         return btn;
     }
 
+    private HBox buildLanguageCellGraphic(LanguageOption language) {
+        ImageView flagIcon = new ImageView(SvgIconLoader.load(language.flagSvgPath(), 22, 14));
+        flagIcon.setFitWidth(22);
+        flagIcon.setFitHeight(14);
+        Label text = new Label(language.displayName());
+        text.getStyleClass().add("settings-label");
+        HBox row = new HBox(8, flagIcon, text);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
     private void showSettingsDialog() {
         CheckBox smartRank = new CheckBox(t(I18nKey.SETTINGS_SMART_RANKING));
         smartRank.setSelected(indexService.isSmartRankingEnabled());
@@ -1132,59 +1184,47 @@ public final class FinderXApp extends Application {
         discordPresence.setSelected(discordPresenceEnabled);
         discordPresence.getStyleClass().add("chip-check");
 
-        ComboBox<AppLanguage> languageSelector = new ComboBox<>();
-        languageSelector.getItems().addAll(AppLanguage.values());
-        languageSelector.setValue(appLanguage);
+        I18n.reload();
+        ComboBox<LanguageOption> languageSelector = new ComboBox<>();
+        languageSelector.getItems().addAll(I18n.availableLanguages());
+        languageSelector.setValue(I18n.findLanguageByCode(appLanguageCode)
+                .orElseGet(() -> languageSelector.getItems().isEmpty() ? null : languageSelector.getItems().getFirst()));
         languageSelector.getStyleClass().add("settings-combo");
         languageSelector.setConverter(new StringConverter<>() {
             @Override
-            public String toString(AppLanguage language) {
+            public String toString(LanguageOption language) {
                 return language == null ? "" : language.displayName();
             }
 
             @Override
-            public AppLanguage fromString(String string) {
-                return appLanguage;
+            public LanguageOption fromString(String string) {
+                return languageSelector.getValue();
             }
         });
         languageSelector.setButtonCell(new ListCell<>() {
             @Override
-            protected void updateItem(AppLanguage item, boolean empty) {
+            protected void updateItem(LanguageOption item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText("");
                     setGraphic(null);
                     return;
                 }
-                ImageView flagIcon = new ImageView(SvgIconLoader.load(item.flagSvgPath(), 22, 14));
-                flagIcon.setFitWidth(22);
-                flagIcon.setFitHeight(14);
-                Label text = new Label(item.displayName());
-                text.getStyleClass().add("settings-label");
-                HBox row = new HBox(8, flagIcon, text);
-                row.setAlignment(Pos.CENTER_LEFT);
                 setText(null);
-                setGraphic(row);
+                setGraphic(buildLanguageCellGraphic(item));
             }
         });
         languageSelector.setCellFactory(list -> new ListCell<>() {
             @Override
-            protected void updateItem(AppLanguage item, boolean empty) {
+            protected void updateItem(LanguageOption item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText("");
                     setGraphic(null);
                     return;
                 }
-                ImageView flagIcon = new ImageView(SvgIconLoader.load(item.flagSvgPath(), 22, 14));
-                flagIcon.setFitWidth(22);
-                flagIcon.setFitHeight(14);
-                Label text = new Label(item.displayName());
-                text.getStyleClass().add("settings-label");
-                HBox row = new HBox(8, flagIcon, text);
-                row.setAlignment(Pos.CENTER_LEFT);
                 setText(null);
-                setGraphic(row);
+                setGraphic(buildLanguageCellGraphic(item));
             }
         });
 
@@ -1367,8 +1407,9 @@ public final class FinderXApp extends Application {
             appStateStore.saveMaxResults(maxResults);
             discordPresenceEnabled = discordPresence.isSelected();
             appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
-            appLanguage = languageSelector.getValue() == null ? AppLanguage.ENGLISH : languageSelector.getValue();
-            appStateStore.saveLanguage(appLanguage.code());
+            LanguageOption selectedLanguage = languageSelector.getValue();
+            appLanguageCode = selectedLanguage == null ? "en" : selectedLanguage.code();
+            appStateStore.saveLanguage(appLanguageCode);
             applyLanguageToMainUi();
             if (discordPresenceService != null) {
                 discordPresenceService.setEnabled(discordPresenceEnabled);

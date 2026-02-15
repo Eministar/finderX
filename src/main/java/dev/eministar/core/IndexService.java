@@ -23,7 +23,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -31,9 +33,13 @@ import java.util.zip.GZIPOutputStream;
 public final class IndexService {
     private static final Base64.Encoder B64_ENC = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder B64_DEC = Base64.getUrlDecoder();
-    private static final int PARALLEL_BUILD_THRESHOLD = 200_000;
+    private static final int PARALLEL_BUILD_THRESHOLD = 500_000;
+    private static final int LIVE_HARVEST_LIMIT = 100_000;
+    private static final long AUTOTUNE_SAMPLE_NANOS = 900_000_000L;
+    private static final int MIN_SCAN_WORKERS = 2;
 
-    private final int scanWorkers = Math.max(4, Math.min(24, Runtime.getRuntime().availableProcessors() * 2));
+    private final int scanWorkers = Math.max(MIN_SCAN_WORKERS, Math.min(12, Runtime.getRuntime().availableProcessors()));
+    private final int buildWorkers = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors() / 2));
     private final int searchWorkers = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
 
     private final ExecutorService coordinatorExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -49,6 +55,11 @@ public final class IndexService {
     });
     private final ExecutorService searchExecutor = Executors.newFixedThreadPool(searchWorkers, r -> {
         Thread t = new Thread(r, "search-worker");
+        t.setDaemon(true);
+        return t;
+    });
+    private final ExecutorService buildExecutor = Executors.newFixedThreadPool(buildWorkers, r -> {
+        Thread t = new Thread(r, "build-worker");
         t.setDaemon(true);
         return t;
     });
@@ -235,6 +246,7 @@ public final class IndexService {
         coordinatorExecutor.shutdownNow();
         scanExecutor.shutdownNow();
         searchExecutor.shutdownNow();
+        buildExecutor.shutdownNow();
     }
 
     private static void appendUntilLimit(List<FileRecord> out, List<FileRecord> source, int limit) {
@@ -275,15 +287,33 @@ public final class IndexService {
             Consumer<IndexProgress> progressConsumer
     ) {
         ConcurrentLinkedDeque<Path> directoryQueue = new ConcurrentLinkedDeque<>();
-        ConcurrentLinkedQueue<TempRecord> harvested = new ConcurrentLinkedQueue<>();
-        liveHarvest = harvested;
+        ConcurrentLinkedQueue<TempRecord> liveQueue = new ConcurrentLinkedQueue<>();
+        liveHarvest = liveQueue;
+        AtomicLong liveHarvested = new AtomicLong(0);
         Set<String> visitedDirs = ConcurrentHashMap.newKeySet();
         AtomicLong activeWorkers = new AtomicLong(0);
+        AtomicInteger allowedWorkers = new AtomicInteger(Math.min(scanWorkers, MIN_SCAN_WORKERS));
+        AtomicLong latestItemsPerSecond = new AtomicLong(-1L);
+        List<List<TempRecord>> workerHarvests = new ArrayList<>(scanWorkers);
+        TempRecord rootRecord;
 
         try {
-            harvested.add(toTempRecord(root, true, 0L, 0L));
+            rootRecord = toTempRecord(root, true, 0L, 0L);
             dirs.incrementAndGet();
             visitedDirs.add(normalizedDirKey(root));
+            offerLiveRecord(rootRecord, liveQueue, liveHarvested);
+            progressConsumer.accept(new IndexProgress(
+                    files.get(),
+                    dirs.get(),
+                    true,
+                    root.toString(),
+                    "scan",
+                    latestItemsPerSecond.get(),
+                    allowedWorkers.get(),
+                    scanWorkers,
+                    directoryQueue.size(),
+                    true
+            ));
         } catch (Exception ignored) {
             return List.of();
         }
@@ -291,20 +321,39 @@ public final class IndexService {
         directoryQueue.add(root);
         CountDownLatch done = new CountDownLatch(scanWorkers);
         for (int i = 0; i < scanWorkers; i++) {
+            int workerId = i;
+            List<TempRecord> localHarvest = new ArrayList<>(16_384);
+            workerHarvests.add(localHarvest);
             scanExecutor.submit(() -> {
                 try {
                     while (true) {
-                        Path dir = directoryQueue.pollFirst();
+                        Path dir = null;
+                        if (workerId < allowedWorkers.get()) {
+                            dir = directoryQueue.pollFirst();
+                        }
                         if (dir == null) {
                             if (directoryQueue.isEmpty() && activeWorkers.get() == 0) {
                                 return;
                             }
-                            Thread.onSpinWait();
+                            LockSupport.parkNanos(300_000L);
                             continue;
                         }
                         activeWorkers.incrementAndGet();
                         try {
-                            scanDirectory(dir, directoryQueue, harvested, visitedDirs, files, dirs, progressConsumer);
+                            scanDirectory(
+                                    dir,
+                                    directoryQueue,
+                                    localHarvest,
+                                    liveQueue,
+                                    liveHarvested,
+                                    visitedDirs,
+                                    files,
+                                    dirs,
+                                    allowedWorkers,
+                                    latestItemsPerSecond,
+                                    scanWorkers,
+                                    progressConsumer
+                            );
                         } finally {
                             activeWorkers.decrementAndGet();
                         }
@@ -315,21 +364,91 @@ public final class IndexService {
             });
         }
 
+        autoTuneScanWorkers(done, directoryQueue, activeWorkers, files, dirs, allowedWorkers, latestItemsPerSecond);
+
+        int estimated = 1;
+        for (List<TempRecord> local : workerHarvests) {
+            estimated += local.size();
+        }
+        List<TempRecord> merged = new ArrayList<>(estimated);
+        merged.add(rootRecord);
+        for (List<TempRecord> local : workerHarvests) {
+            merged.addAll(local);
+        }
+        return merged;
+    }
+
+    private void autoTuneScanWorkers(
+            CountDownLatch done,
+            ConcurrentLinkedDeque<Path> directoryQueue,
+            AtomicLong activeWorkers,
+            AtomicLong files,
+            AtomicLong dirs,
+            AtomicInteger allowedWorkers,
+            AtomicLong latestItemsPerSecond
+    ) {
+        long bestRate = -1L;
+        int bestWorkers = allowedWorkers.get();
+        int declineWindows = 0;
+
+        long prevTotal = files.get() + dirs.get();
+        long prevSampleNanos = System.nanoTime();
+
+        while (done.getCount() > 0) {
+            LockSupport.parkNanos(AUTOTUNE_SAMPLE_NANOS);
+
+            long now = System.nanoTime();
+            long elapsed = Math.max(1L, now - prevSampleNanos);
+            long total = files.get() + dirs.get();
+            long delta = Math.max(0L, total - prevTotal);
+            long rate = delta * 1_000_000_000L / elapsed;
+            latestItemsPerSecond.set(rate);
+
+            int currentAllowed = allowedWorkers.get();
+            if (rate > bestRate) {
+                bestRate = rate;
+                bestWorkers = currentAllowed;
+                declineWindows = 0;
+            } else if (rate < (bestRate * 97L / 100L)) {
+                declineWindows++;
+            } else {
+                declineWindows = 0;
+            }
+
+            int queueDepth = directoryQueue.size();
+            long currentlyActive = activeWorkers.get();
+            boolean saturated = queueDepth > currentAllowed * 8 && currentlyActive >= Math.max(1, currentAllowed - 1);
+
+            if (declineWindows >= 2 && currentAllowed > MIN_SCAN_WORKERS) {
+                allowedWorkers.set(Math.max(MIN_SCAN_WORKERS, bestWorkers));
+                declineWindows = 0;
+            } else if (saturated && currentAllowed < scanWorkers) {
+                allowedWorkers.incrementAndGet();
+            }
+
+            prevTotal = total;
+            prevSampleNanos = now;
+        }
+
         try {
             done.await();
         } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
         }
-        return new ArrayList<>(harvested);
     }
 
     private void scanDirectory(
             Path directory,
             ConcurrentLinkedDeque<Path> directoryQueue,
-            ConcurrentLinkedQueue<TempRecord> harvested,
+            List<TempRecord> localHarvest,
+            ConcurrentLinkedQueue<TempRecord> liveQueue,
+            AtomicLong liveHarvested,
             Set<String> visitedDirs,
             AtomicLong files,
             AtomicLong dirs,
+            AtomicInteger allowedWorkers,
+            AtomicLong latestItemsPerSecond,
+            int maxWorkers,
             Consumer<IndexProgress> progressConsumer
     ) {
         try (var stream = Files.newDirectoryStream(directory)) {
@@ -341,23 +460,62 @@ public final class IndexService {
                         if (!visitedDirs.add(key)) {
                             continue;
                         }
-                        harvested.add(toTempRecord(child, true, 0L, 0L));
+                        TempRecord record = toTempRecord(child, true, 0L, 0L);
+                        localHarvest.add(record);
+                        offerLiveRecord(record, liveQueue, liveHarvested);
                         directoryQueue.addLast(child);
                         long d = dirs.incrementAndGet();
                         if ((d & 1023L) == 0L) {
-                            progressConsumer.accept(new IndexProgress(files.get(), d, true, child.toString(), "scan"));
+                            progressConsumer.accept(new IndexProgress(
+                                    files.get(),
+                                    d,
+                                    true,
+                                    child.toString(),
+                                    "scan",
+                                    latestItemsPerSecond.get(),
+                                    allowedWorkers.get(),
+                                    maxWorkers,
+                                    directoryQueue.size(),
+                                    true
+                            ));
                         }
                     } else {
-                        harvested.add(toTempRecord(child, false, 0L, 0L));
+                        TempRecord record = toTempRecord(child, false, 0L, 0L);
+                        localHarvest.add(record);
+                        offerLiveRecord(record, liveQueue, liveHarvested);
                         long f = files.incrementAndGet();
                         if ((f & 4095L) == 0L) {
-                            progressConsumer.accept(new IndexProgress(f, dirs.get(), true, child.toString(), "scan"));
+                            progressConsumer.accept(new IndexProgress(
+                                    f,
+                                    dirs.get(),
+                                    true,
+                                    child.toString(),
+                                    "scan",
+                                    latestItemsPerSecond.get(),
+                                    allowedWorkers.get(),
+                                    maxWorkers,
+                                    directoryQueue.size(),
+                                    true
+                            ));
                         }
                     }
                 } catch (Exception ignored) {
                 }
             }
         } catch (IOException ignored) {
+        }
+    }
+
+    private static void offerLiveRecord(TempRecord record, ConcurrentLinkedQueue<TempRecord> liveQueue, AtomicLong liveHarvested) {
+        while (true) {
+            long current = liveHarvested.get();
+            if (current >= LIVE_HARVEST_LIMIT) {
+                return;
+            }
+            if (liveHarvested.compareAndSet(current, current + 1)) {
+                liveQueue.offer(record);
+                return;
+            }
         }
     }
 
@@ -552,7 +710,10 @@ public final class IndexService {
         for (int start = 0; start < size; start += chunkSize) {
             int from = start;
             int to = Math.min(size, from + chunkSize);
-            futures.add(CompletableFuture.supplyAsync(() -> buildChunk(harvested, from, to, builtRecordArray, builtNamesLower)));
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> buildChunk(harvested, from, to, builtRecordArray, builtNamesLower),
+                    buildExecutor
+            ));
         }
 
         Map<Path, List<Integer>> builtChildrenByParent = new HashMap<>(Math.max(1024, size / 8));
