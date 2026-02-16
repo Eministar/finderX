@@ -12,13 +12,14 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <finderx.api.version>1.0.0</finderx.api.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>dev.eministar</groupId>
             <artifactId>finderx-plugin-api</artifactId>
-            <version>1.0.0</version>
+            <version>${finderx.api.version}</version>
             <scope>system</scope>
             <systemPath>${project.basedir}/../../dist/FinderX-Plugin-API.jar</systemPath>
         </dependency>
