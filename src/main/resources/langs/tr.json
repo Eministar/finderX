@@ -75,6 +75,15 @@
     "SETTINGS_DONATE_BUTTON": "Support on Ko-fi",
     "SETTINGS_CANCEL": "Iptal",
     "SETTINGS_SAVE": "Kaydet",
-    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "Dil saved. Reopen settings to see translated labels."
+    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "Dil saved. Reopen settings to see translated labels.",
+    "SETTINGS_INDEX_MODE": "Indeks modu:",
+    "SETTINGS_INDEX_MODE_FULL": "Tam yeniden indeksle",
+    "SETTINGS_INDEX_MODE_INCREMENTAL": "Artimli",
+    "SETTINGS_INCREMENTAL_ON_STARTUP": "Baslangicta artimli indekslemeyi kullan",
+    "SETTINGS_INDEX_MODE_AUTO": "Otomatik (onerilen)",
+    "SETTINGS_STATUS_PLUGINS_RELOADED": "Eklentiler yeniden yuklendi",
+    "SETTINGS_RELOAD_PLUGINS": "Eklentileri yeniden yukle",
+    "SETTINGS_PLUGINS": "Eklentiler",
+    "SETTINGS_WATCH_MODE": "Izleme modunu etkinlestir (canli guncellemeler)"
   }
 }

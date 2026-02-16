@@ -95,6 +95,18 @@ public final class AppStateStore {
         return loadSetting("selectedThemeFile", "");
     }
 
+    public String loadIndexMode() {
+        return loadSetting("indexMode", "auto");
+    }
+
+    public boolean loadIncrementalOnStartup() {
+        return Boolean.parseBoolean(loadSetting("incrementalOnStartup", "true"));
+    }
+
+    public boolean loadWatchModeEnabled() {
+        return Boolean.parseBoolean(loadSetting("watchModeEnabled", "true"));
+    }
+
     public void saveSelectedRoot(String root) {
         saveSetting("selectedRoot", root);
     }
@@ -121,6 +133,18 @@ public final class AppStateStore {
 
     public void saveSelectedThemeFile(String fileName) {
         saveSetting("selectedThemeFile", fileName == null ? "" : fileName);
+    }
+
+    public void saveIndexMode(String mode) {
+        saveSetting("indexMode", mode == null ? "auto" : mode);
+    }
+
+    public void saveIncrementalOnStartup(boolean enabled) {
+        saveSetting("incrementalOnStartup", Boolean.toString(enabled));
+    }
+
+    public void saveWatchModeEnabled(boolean enabled) {
+        saveSetting("watchModeEnabled", Boolean.toString(enabled));
     }
 
     public void clearAllState() {

@@ -5,10 +5,12 @@ import dev.eministar.core.DiscordPresenceService;
 import dev.eministar.core.FileRecord;
 import dev.eministar.core.IndexProgress;
 import dev.eministar.core.IndexService;
+import dev.eministar.core.IndexMode;
 import dev.eministar.core.UpdateService;
 import dev.eministar.i18n.I18n;
 import dev.eministar.i18n.I18nKey;
 import dev.eministar.i18n.LanguageOption;
+import dev.eministar.plugins.PluginManager;
 import dev.eministar.ui.SvgIconLoader;
 import dev.eministar.ui.SystemIconProvider;
 import javafx.animation.PauseTransition;
@@ -70,6 +72,10 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -93,6 +99,7 @@ public final class FinderXApp extends Application {
     private final UpdateService updateService = new UpdateService();
     private final SystemIconProvider iconProvider = new SystemIconProvider();
     private final AppStateStore appStateStore = new AppStateStore();
+    private final PluginManager pluginManager;
     private final DiscordPresenceService discordPresenceService;
 
     private final ObservableList<FileRecord> rows = FXCollections.observableArrayList();
@@ -138,10 +145,15 @@ public final class FinderXApp extends Application {
     private int maxResults = 700;
     private boolean discordPresenceEnabled = true;
     private String appLanguageCode = "en";
+    private IndexMode indexMode = IndexMode.AUTO;
+    private boolean incrementalOnStartup = true;
+    private boolean watchModeEnabled = true;
     private String latestUpdateVersion;
     private boolean customThemeEnabled;
     private String selectedThemeFile = "";
     private Scene mainScene;
+    private WatchService watchService;
+    private Thread watchThread;
 
     private enum ResizeMode {
         NONE, N, S, E, W, NE, NW, SE, SW
@@ -164,6 +176,14 @@ public final class FinderXApp extends Application {
             String description,
             boolean official
     ) {
+    }
+
+    private Path pluginActiveRoot() {
+        return activeRoot == null ? Path.of("C:\\") : activeRoot;
+    }
+
+    private String pluginLanguageCode() {
+        return appLanguageCode == null || appLanguageCode.isBlank() ? "en" : appLanguageCode;
     }
 
     private String t(I18nKey key, Object... args) {
@@ -406,6 +426,7 @@ public final class FinderXApp extends Application {
     }
 
     public FinderXApp() {
+        this.pluginManager = new PluginManager(this::pluginActiveRoot, this::pluginLanguageCode);
         this.discordPresenceService = createDiscordPresenceService();
     }
 
@@ -592,6 +613,7 @@ public final class FinderXApp extends Application {
 
     @Override
     public void stop() {
+        stopWatchMode();
         appStateStore.savePinned(pinnedPaths);
         appStateStore.saveRecent(recentPaths);
         appStateStore.saveSmartRankingEnabled(indexService.isSmartRankingEnabled());
@@ -600,12 +622,16 @@ public final class FinderXApp extends Application {
         appStateStore.saveMaxResults(maxResults);
         appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
         appStateStore.saveLanguage(appLanguageCode);
+        appStateStore.saveIndexMode(indexMode.name().toLowerCase(Locale.ROOT));
+        appStateStore.saveIncrementalOnStartup(incrementalOnStartup);
+        appStateStore.saveWatchModeEnabled(watchModeEnabled);
         appStateStore.saveCustomThemeEnabled(customThemeEnabled);
         appStateStore.saveSelectedThemeFile(selectedThemeFile);
         if (discordPresenceService != null) {
             discordPresenceService.stop();
         }
         indexService.shutdown();
+        pluginManager.shutdown();
         iconProvider.shutdown();
     }
 
@@ -618,6 +644,12 @@ public final class FinderXApp extends Application {
         maxResults = Math.max(100, Math.min(5000, appStateStore.loadMaxResults()));
         discordPresenceEnabled = appStateStore.loadDiscordPresenceEnabled();
         appLanguageCode = I18n.resolveLanguageCode(appStateStore.loadLanguage());
+        indexMode = IndexMode.fromString(appStateStore.loadIndexMode());
+        incrementalOnStartup = appStateStore.loadIncrementalOnStartup();
+        watchModeEnabled = appStateStore.loadWatchModeEnabled();
+        indexService.setIndexMode(indexMode);
+        indexService.setIncrementalOnStartup(incrementalOnStartup);
+        pluginManager.reload();
         customThemeEnabled = appStateStore.loadCustomThemeEnabled();
         selectedThemeFile = appStateStore.loadSelectedThemeFile();
         ensureOfficialThemeFiles();
@@ -983,11 +1015,112 @@ public final class FinderXApp extends Application {
     }
 
     private void startIndexing() {
+        stopWatchMode();
         indexService.startIndex(activeRoot, this::onIndexProgress);
         rows.clear();
         statusLabel.setText(t(I18nKey.UI_STATUS_TYPE_TO_SEARCH));
+        if (watchModeEnabled) {
+            startWatchMode();
+        }
         if (discordPresenceService != null) {
             discordPresenceService.updateIndexing(activeRoot.toString(), 0);
+        }
+    }
+
+    private void startWatchMode() {
+        if (!watchModeEnabled) {
+            return;
+        }
+        stopWatchMode();
+        try {
+            watchService = activeRoot.getFileSystem().newWatchService();
+            registerAllDirectories(activeRoot, watchService);
+            watchThread = new Thread(() -> runWatchLoop(activeRoot, watchService), "finderx-watch");
+            watchThread.setDaemon(true);
+            watchThread.start();
+        } catch (Exception ignored) {
+            stopWatchMode();
+        }
+    }
+
+    private void stopWatchMode() {
+        Thread localThread = watchThread;
+        watchThread = null;
+        if (localThread != null) {
+            localThread.interrupt();
+        }
+
+        WatchService localService = watchService;
+        watchService = null;
+        if (localService != null) {
+            try {
+                localService.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private void runWatchLoop(Path root, WatchService service) {
+        long lastTriggerNanos = 0L;
+        while (!Thread.currentThread().isInterrupted()) {
+            WatchKey key;
+            try {
+                key = service.take();
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception ignored) {
+                return;
+            }
+
+            boolean changed = false;
+            for (WatchEvent<?> event : key.pollEvents()) {
+                if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                    continue;
+                }
+                changed = true;
+                Object context = event.context();
+                if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && context instanceof Path created) {
+                    Path watchedDir = (Path) key.watchable();
+                    Path full = watchedDir.resolve(created);
+                    if (Files.isDirectory(full)) {
+                        registerDirectorySafe(full, service);
+                    }
+                }
+            }
+            key.reset();
+
+            if (changed) {
+                long now = System.nanoTime();
+                if (now - lastTriggerNanos > 800_000_000L) {
+                    lastTriggerNanos = now;
+                    Platform.runLater(() -> {
+                        if (watchModeEnabled && activeRoot.equals(root) && !indexService.isIndexing()) {
+                            startIndexing();
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    private void registerAllDirectories(Path root, WatchService service) {
+        registerDirectorySafe(root, service);
+        try (var walk = Files.walk(root)) {
+            walk.filter(Files::isDirectory).forEach(path -> registerDirectorySafe(path, service));
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void registerDirectorySafe(Path dir, WatchService service) {
+        try {
+            dir.register(
+                    service,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_DELETE,
+                    StandardWatchEventKinds.ENTRY_MODIFY
+            );
+        } catch (Exception ignored) {
         }
     }
 
@@ -1070,13 +1203,72 @@ public final class FinderXApp extends Application {
             if (gen != searchGeneration.get()) {
                 return;
             }
-            List<FileRecord> filtered = applyFilters(found);
+            List<FileRecord> merged = mergePluginResults(found, query, limit);
+            List<FileRecord> filtered = applyFilters(merged);
             rows.setAll(filtered);
             statusLabel.setText(t(I18nKey.UI_RESULTS_COUNT, filtered.size()));
             if (discordPresenceService != null) {
                 discordPresenceService.updateSearch(query, filtered.size(), activeRoot.toString());
             }
         }));
+    }
+
+    private List<FileRecord> mergePluginResults(List<FileRecord> base, String query, int limit) {
+        if (query == null || query.isBlank()) {
+            return base;
+        }
+        List<Path> pluginHits = pluginManager.search(query, Math.max(0, limit - base.size()));
+        if (pluginHits.isEmpty()) {
+            return base;
+        }
+
+        LinkedHashSet<Path> seen = new LinkedHashSet<>();
+        List<FileRecord> out = new ArrayList<>(Math.min(limit, base.size() + pluginHits.size()));
+
+        for (FileRecord record : base) {
+            if (out.size() >= limit) {
+                return out;
+            }
+            seen.add(record.path());
+            out.add(record);
+        }
+
+        int id = out.size();
+        for (Path hit : pluginHits) {
+            if (out.size() >= limit) {
+                break;
+            }
+            if (hit == null || seen.contains(hit)) {
+                continue;
+            }
+            toFileRecord(hit, id++).ifPresent(record -> {
+                seen.add(record.path());
+                out.add(record);
+            });
+        }
+        return out;
+    }
+
+    private java.util.Optional<FileRecord> toFileRecord(Path path, int id) {
+        try {
+            Path normalized = path.toAbsolutePath().normalize();
+            boolean directory = Files.isDirectory(normalized);
+            long size = directory ? 0L : Files.size(normalized);
+            long modified = Files.getLastModifiedTime(normalized).toMillis();
+            String name = normalized.getFileName() == null ? normalized.toString() : normalized.getFileName().toString();
+            return java.util.Optional.of(new FileRecord(
+                    id,
+                    normalized,
+                    normalized.getParent(),
+                    name,
+                    name.toLowerCase(Locale.ROOT),
+                    directory,
+                    size,
+                    modified
+            ));
+        } catch (Exception ignored) {
+            return java.util.Optional.empty();
+        }
     }
 
     private List<FileRecord> applyFilters(List<FileRecord> found) {
@@ -1183,6 +1375,35 @@ public final class FinderXApp extends Application {
         CheckBox discordPresence = new CheckBox(t(I18nKey.SETTINGS_DISCORD_PRESENCE));
         discordPresence.setSelected(discordPresenceEnabled);
         discordPresence.getStyleClass().add("chip-check");
+        CheckBox incrementalStartupCheck = new CheckBox(t(I18nKey.SETTINGS_INCREMENTAL_ON_STARTUP));
+        incrementalStartupCheck.setSelected(incrementalOnStartup);
+        incrementalStartupCheck.getStyleClass().add("chip-check");
+        CheckBox watchModeCheck = new CheckBox(t(I18nKey.SETTINGS_WATCH_MODE));
+        watchModeCheck.setSelected(watchModeEnabled);
+        watchModeCheck.getStyleClass().add("chip-check");
+
+        ComboBox<IndexMode> indexModeSelector = new ComboBox<>();
+        indexModeSelector.getItems().addAll(IndexMode.values());
+        indexModeSelector.setValue(indexMode);
+        indexModeSelector.getStyleClass().add("settings-combo");
+        indexModeSelector.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(IndexMode mode) {
+                if (mode == null) {
+                    return "";
+                }
+                return switch (mode) {
+                    case AUTO -> t(I18nKey.SETTINGS_INDEX_MODE_AUTO);
+                    case INCREMENTAL -> t(I18nKey.SETTINGS_INDEX_MODE_INCREMENTAL);
+                    case FULL -> t(I18nKey.SETTINGS_INDEX_MODE_FULL);
+                };
+            }
+
+            @Override
+            public IndexMode fromString(String string) {
+                return indexModeSelector.getValue();
+            }
+        });
 
         I18n.reload();
         ComboBox<LanguageOption> languageSelector = new ComboBox<>();
@@ -1239,6 +1460,13 @@ public final class FinderXApp extends Application {
             statusLabel.setText(t(I18nKey.SETTINGS_STATUS_CACHE_CLEARED));
         });
 
+        Button reloadPluginsBtn = new Button(t(I18nKey.SETTINGS_RELOAD_PLUGINS));
+        reloadPluginsBtn.getStyleClass().add("settings-btn");
+        reloadPluginsBtn.setOnAction(e -> {
+            pluginManager.reload();
+            statusLabel.setText(t(I18nKey.SETTINGS_STATUS_PLUGINS_RELOADED));
+        });
+
         Button themeSupportBtn = new Button(t(I18nKey.SETTINGS_THEME_SUPPORT));
         themeSupportBtn.getStyleClass().add("settings-btn");
 
@@ -1254,13 +1482,19 @@ public final class FinderXApp extends Application {
 
         Label perfLabel = new Label(t(I18nKey.SETTINGS_PERFORMANCE));
         perfLabel.getStyleClass().add("settings-section");
+        Label pluginLabel = new Label(t(I18nKey.SETTINGS_PLUGINS));
+        pluginLabel.getStyleClass().add("settings-section");
         Label maxLabel = new Label(t(I18nKey.SETTINGS_MAX_RESULTS));
         maxLabel.getStyleClass().add("settings-label");
         Label languageLabel = new Label(t(I18nKey.SETTINGS_LANGUAGE));
         languageLabel.getStyleClass().add("settings-label");
+        Label indexModeLabel = new Label(t(I18nKey.SETTINGS_INDEX_MODE));
+        indexModeLabel.getStyleClass().add("settings-label");
 
         HBox maxRow = new HBox(10, maxLabel, maxResultsSpinner);
         maxRow.setAlignment(Pos.CENTER_LEFT);
+        HBox indexModeRow = new HBox(10, indexModeLabel, indexModeSelector);
+        indexModeRow.setAlignment(Pos.CENTER_LEFT);
         HBox languageRow = new HBox(10, languageLabel, languageSelector);
         languageRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -1335,8 +1569,14 @@ public final class FinderXApp extends Application {
                 perfLabel,
                 smartRank,
                 discordPresence,
+                watchModeCheck,
+                indexModeRow,
+                incrementalStartupCheck,
                 maxRow,
                 languageRow,
+                new Separator(),
+                pluginLabel,
+                reloadPluginsBtn,
                 new Separator(),
                 maintenanceLabel,
                 themeSupportBtn,
@@ -1407,10 +1647,23 @@ public final class FinderXApp extends Application {
             appStateStore.saveMaxResults(maxResults);
             discordPresenceEnabled = discordPresence.isSelected();
             appStateStore.saveDiscordPresenceEnabled(discordPresenceEnabled);
+            indexMode = indexModeSelector.getValue() == null ? IndexMode.AUTO : indexModeSelector.getValue();
+            incrementalOnStartup = incrementalStartupCheck.isSelected();
+            watchModeEnabled = watchModeCheck.isSelected();
+            indexService.setIndexMode(indexMode);
+            indexService.setIncrementalOnStartup(incrementalOnStartup);
+            appStateStore.saveIndexMode(indexMode.name().toLowerCase(Locale.ROOT));
+            appStateStore.saveIncrementalOnStartup(incrementalOnStartup);
+            appStateStore.saveWatchModeEnabled(watchModeEnabled);
             LanguageOption selectedLanguage = languageSelector.getValue();
             appLanguageCode = selectedLanguage == null ? "en" : selectedLanguage.code();
             appStateStore.saveLanguage(appLanguageCode);
             applyLanguageToMainUi();
+            if (watchModeEnabled) {
+                startWatchMode();
+            } else {
+                stopWatchMode();
+            }
             if (discordPresenceService != null) {
                 discordPresenceService.setEnabled(discordPresenceEnabled);
                 if (discordPresenceEnabled) {

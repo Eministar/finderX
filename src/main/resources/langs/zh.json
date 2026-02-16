@@ -75,6 +75,15 @@
     "SETTINGS_DONATE_BUTTON": "在 Ko-fi 支持",
     "SETTINGS_CANCEL": "取消",
     "SETTINGS_SAVE": "保存",
-    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "语言已保存。重新打开设置以查看翻译文本。"
+    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "语言已保存。重新打开设置以查看翻译文本。",
+    "SETTINGS_INDEX_MODE": "索引模式:",
+    "SETTINGS_INDEX_MODE_FULL": "完整重建",
+    "SETTINGS_INDEX_MODE_INCREMENTAL": "增量",
+    "SETTINGS_INCREMENTAL_ON_STARTUP": "启动时使用增量索引",
+    "SETTINGS_INDEX_MODE_AUTO": "自动 (推荐)",
+    "SETTINGS_STATUS_PLUGINS_RELOADED": "插件已重新加载",
+    "SETTINGS_RELOAD_PLUGINS": "重新加载插件",
+    "SETTINGS_PLUGINS": "插件",
+    "SETTINGS_WATCH_MODE": "启用监听模式 (实时更新)"
   }
 }

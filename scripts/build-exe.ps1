@@ -375,8 +375,20 @@ Invoke-Checked -Exe "mvn" -CommandArgs @(
 Write-Ok "Runtime dependencies copied"
 
 Write-Step "Prepare dist"
+$apiJarPath = "dist\FinderX-Plugin-API.jar"
+$apiJarBackup = $null
+if (Test-Path $apiJarPath) {
+    $apiJarBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("FinderX-Plugin-API-" + [guid]::NewGuid().ToString("N") + ".jar")
+    Copy-Item -Path $apiJarPath -Destination $apiJarBackup -Force
+    Write-Info "Preserved existing API JAR before dist cleanup."
+}
 if (Test-Path dist) { Remove-Item dist -Recurse -Force }
 New-Item -ItemType Directory dist | Out-Null
+if ($apiJarBackup -and (Test-Path $apiJarBackup)) {
+    Copy-Item -Path $apiJarBackup -Destination $apiJarPath -Force
+    Remove-Item $apiJarBackup -Force -ErrorAction SilentlyContinue
+    Write-Info "Restored preserved API JAR into dist."
+}
 Write-Ok "dist prepared"
 
 Write-Step "Build app image"

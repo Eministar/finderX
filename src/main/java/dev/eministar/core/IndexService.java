@@ -7,9 +7,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -64,7 +67,8 @@ public final class IndexService {
         return t;
     });
 
-    private final Path cachePath = Path.of(System.getProperty("user.home"), ".finderx", "index-cache-v4.tsv.gz");
+    private final Path cacheDir = Path.of(System.getProperty("user.home"), ".finderx");
+    private final Path legacyCachePath = cacheDir.resolve("index-cache-v4.tsv.gz");
 
     private volatile List<FileRecord> records = List.of();
     private volatile Map<Path, List<Integer>> childrenByParent = Map.of();
@@ -75,6 +79,8 @@ public final class IndexService {
 
     private final ConcurrentHashMap<String, Integer> usageScores = new ConcurrentHashMap<>();
     private volatile boolean smartRankingEnabled = true;
+    private volatile IndexMode indexMode = IndexMode.AUTO;
+    private volatile boolean incrementalOnStartup = true;
 
     private final AtomicBoolean indexing = new AtomicBoolean();
     private final AtomicLong queryGeneration = new AtomicLong();
@@ -85,20 +91,33 @@ public final class IndexService {
         }
         return CompletableFuture.runAsync(() -> {
             long startNanos = System.nanoTime();
+            AtomicLong files = new AtomicLong(0);
+            AtomicLong dirs = new AtomicLong(0);
+            List<TempRecord> harvested = null;
+
             try {
-                if (loadCacheIfPresent(root, progressConsumer)) {
-                    liveHarvest = null;
-                    indexing.set(false);
-                    return;
+                if (indexMode != IndexMode.FULL) {
+                    if (indexMode == IndexMode.AUTO && !incrementalOnStartup) {
+                        if (loadCacheIfPresent(root, progressConsumer)) {
+                            liveHarvest = null;
+                            indexing.set(false);
+                            return;
+                        }
+                    } else {
+                        List<TempRecord> cached = loadCacheSnapshot(root, progressConsumer);
+                        if (!cached.isEmpty()) {
+                            harvested = incrementalFromCache(root, cached, files, dirs, progressConsumer);
+                        }
+                    }
                 }
             } catch (Exception ignored) {
             }
 
-            AtomicLong files = new AtomicLong(0);
-            AtomicLong dirs = new AtomicLong(0);
-            progressConsumer.accept(new IndexProgress(0, 0, true, root.toString(), "scan"));
+            if (harvested == null) {
+                progressConsumer.accept(new IndexProgress(0, 0, true, root.toString(), "scan"));
+                harvested = scanFileSystem(root, files, dirs, progressConsumer);
+            }
 
-            List<TempRecord> harvested = scanFileSystem(root, files, dirs, progressConsumer);
             progressConsumer.accept(new IndexProgress(files.get(), dirs.get(), true, "building in-memory search", "build"));
 
             List<FileRecord> snapshot = buildSnapshot(harvested);
@@ -215,6 +234,22 @@ public final class IndexService {
         return smartRankingEnabled;
     }
 
+    public void setIndexMode(IndexMode mode) {
+        this.indexMode = mode == null ? IndexMode.AUTO : mode;
+    }
+
+    public IndexMode getIndexMode() {
+        return indexMode;
+    }
+
+    public void setIncrementalOnStartup(boolean enabled) {
+        this.incrementalOnStartup = enabled;
+    }
+
+    public boolean isIncrementalOnStartup() {
+        return incrementalOnStartup;
+    }
+
     public void setUsageScores(Map<String, Integer> scores) {
         usageScores.clear();
         usageScores.putAll(scores);
@@ -237,7 +272,21 @@ public final class IndexService {
 
     public void clearIndexCache() {
         try {
-            Files.deleteIfExists(cachePath);
+            Files.deleteIfExists(legacyCachePath);
+            if (Files.isDirectory(cacheDir)) {
+                try (var stream = Files.list(cacheDir)) {
+                    stream.filter(path -> {
+                                String name = path.getFileName() == null ? "" : path.getFileName().toString();
+                                return name.startsWith("index-cache-v5-") && name.endsWith(".tsv.gz");
+                            })
+                            .forEach(path -> {
+                                try {
+                                    Files.deleteIfExists(path);
+                                } catch (IOException ignored) {
+                                }
+                            });
+                }
+            }
         } catch (IOException ignored) {
         }
     }
@@ -298,7 +347,7 @@ public final class IndexService {
         TempRecord rootRecord;
 
         try {
-            rootRecord = toTempRecord(root, true, 0L, 0L);
+            rootRecord = toTempRecord(root, true);
             dirs.incrementAndGet();
             visitedDirs.add(normalizedDirKey(root));
             offerLiveRecord(rootRecord, liveQueue, liveHarvested);
@@ -376,6 +425,194 @@ public final class IndexService {
             merged.addAll(local);
         }
         return merged;
+    }
+
+    private List<TempRecord> incrementalFromCache(
+            Path root,
+            List<TempRecord> cached,
+            AtomicLong files,
+            AtomicLong dirs,
+            Consumer<IndexProgress> progressConsumer
+    ) {
+        progressConsumer.accept(new IndexProgress(0, 0, true, root.toString(), "scan"));
+
+        Map<String, TempRecord> cachedByPath = new HashMap<>(Math.max(1024, cached.size() * 2));
+        Map<String, List<TempRecord>> cachedChildrenByParent = new HashMap<>(Math.max(1024, cached.size() / 4));
+        for (TempRecord item : cached) {
+            String key = normalizedDirKey(item.path());
+            cachedByPath.put(key, item);
+            if (item.parent() != null) {
+                String parentKey = normalizedDirKey(item.parent());
+                cachedChildrenByParent.computeIfAbsent(parentKey, ignored -> new ArrayList<>(16)).add(item);
+            }
+        }
+
+        ConcurrentLinkedQueue<TempRecord> liveQueue = new ConcurrentLinkedQueue<>();
+        AtomicLong liveHarvested = new AtomicLong(0);
+        liveHarvest = liveQueue;
+        Set<String> visitedDirs = ConcurrentHashMap.newKeySet();
+        List<TempRecord> merged = new ArrayList<>(Math.max(64_000, cached.size()));
+        AtomicLong reused = new AtomicLong(0);
+        AtomicLong changed = new AtomicLong(0);
+
+        Deque<IncrementalTask> queue = new ArrayDeque<>();
+        queue.addLast(new IncrementalTask(root, false));
+
+        while (!queue.isEmpty()) {
+            IncrementalTask task = queue.removeFirst();
+            Path directory = task.directory();
+            String dirKey = normalizedDirKey(directory);
+            if (!visitedDirs.add(dirKey)) {
+                continue;
+            }
+
+            TempRecord cachedDir = cachedByPath.get(dirKey);
+            if (task.allowReuseCheck() && canReuseDirectory(directory, cachedDir)) {
+                reuseSubtreeFromCache(
+                        dirKey,
+                        cachedByPath,
+                        cachedChildrenByParent,
+                        merged,
+                        liveQueue,
+                        liveHarvested,
+                        files,
+                        dirs,
+                        reused
+                );
+                continue;
+            }
+
+            TempRecord currentDir;
+            try {
+                currentDir = toTempRecord(directory, true);
+            } catch (Exception ignored) {
+                continue;
+            }
+            appendRecord(currentDir, merged, liveQueue, liveHarvested, files, dirs);
+            changed.incrementAndGet();
+
+            try (var stream = Files.newDirectoryStream(directory)) {
+                for (Path child : stream) {
+                    try {
+                        if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+                            String childKey = normalizedDirKey(child);
+                            TempRecord cachedChild = cachedByPath.get(childKey);
+                            if (canReuseDirectory(child, cachedChild)) {
+                                reuseSubtreeFromCache(
+                                        childKey,
+                                        cachedByPath,
+                                        cachedChildrenByParent,
+                                        merged,
+                                        liveQueue,
+                                        liveHarvested,
+                                        files,
+                                        dirs,
+                                        reused
+                                );
+                            } else {
+                                queue.addLast(new IncrementalTask(child, true));
+                            }
+                        } else {
+                            TempRecord fileRecord = toTempRecord(child, false);
+                            appendRecord(fileRecord, merged, liveQueue, liveHarvested, files, dirs);
+                            changed.incrementAndGet();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
+        progressConsumer.accept(new IndexProgress(
+                files.get(),
+                dirs.get(),
+                true,
+                "incremental reused " + reused.get() + ", changed " + changed.get(),
+                "build"
+        ));
+        return merged;
+    }
+
+    private static void appendRecord(
+            TempRecord record,
+            List<TempRecord> merged,
+            ConcurrentLinkedQueue<TempRecord> liveQueue,
+            AtomicLong liveHarvested,
+            AtomicLong files,
+            AtomicLong dirs
+    ) {
+        merged.add(record);
+        offerLiveRecord(record, liveQueue, liveHarvested);
+        if (record.directory()) {
+            dirs.incrementAndGet();
+        } else {
+            files.incrementAndGet();
+        }
+    }
+
+    private static boolean canReuseDirectory(Path directory, TempRecord cachedDirectoryRecord) {
+        if (cachedDirectoryRecord == null || !cachedDirectoryRecord.directory()) {
+            return false;
+        }
+        try {
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
+            long modified = Files.getLastModifiedTime(directory, LinkOption.NOFOLLOW_LINKS).toMillis();
+            return modified == cachedDirectoryRecord.modifiedEpochMillis();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void reuseSubtreeFromCache(
+            String rootKey,
+            Map<String, TempRecord> cachedByPath,
+            Map<String, List<TempRecord>> cachedChildrenByParent,
+            List<TempRecord> merged,
+            ConcurrentLinkedQueue<TempRecord> liveQueue,
+            AtomicLong liveHarvested,
+            AtomicLong files,
+            AtomicLong dirs,
+            AtomicLong reused
+    ) {
+        Deque<String> queue = new ArrayDeque<>();
+        queue.addLast(rootKey);
+        while (!queue.isEmpty()) {
+            String key = queue.removeFirst();
+            TempRecord record = cachedByPath.get(key);
+            if (record == null) {
+                continue;
+            }
+            appendRecord(record, merged, liveQueue, liveHarvested, files, dirs);
+            reused.incrementAndGet();
+
+            if (record.directory()) {
+                List<TempRecord> children = cachedChildrenByParent.get(key);
+                if (children != null) {
+                    for (TempRecord child : children) {
+                        queue.addLast(normalizedDirKey(child.path()));
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean sameRecord(TempRecord old, TempRecord current) {
+        if (old.directory() != current.directory()) {
+            return false;
+        }
+        if (!old.name().equals(current.name())) {
+            return false;
+        }
+        if (old.modifiedEpochMillis() != current.modifiedEpochMillis()) {
+            return false;
+        }
+        if (old.directory()) {
+            return true;
+        }
+        return old.size() == current.size();
     }
 
     private void autoTuneScanWorkers(
@@ -460,7 +697,7 @@ public final class IndexService {
                         if (!visitedDirs.add(key)) {
                             continue;
                         }
-                        TempRecord record = toTempRecord(child, true, 0L, 0L);
+                        TempRecord record = toTempRecord(child, true);
                         localHarvest.add(record);
                         offerLiveRecord(record, liveQueue, liveHarvested);
                         directoryQueue.addLast(child);
@@ -480,7 +717,7 @@ public final class IndexService {
                             ));
                         }
                     } else {
-                        TempRecord record = toTempRecord(child, false, 0L, 0L);
+                        TempRecord record = toTempRecord(child, false);
                         localHarvest.add(record);
                         offerLiveRecord(record, liveQueue, liveHarvested);
                         long f = files.incrementAndGet();
@@ -519,8 +756,20 @@ public final class IndexService {
         }
     }
 
-    private TempRecord toTempRecord(Path path, boolean directory, long size, long modifiedEpochMillis) {
+    private TempRecord toTempRecord(Path path, boolean directory) {
         String name = path.getFileName() == null ? path.toString() : path.getFileName().toString();
+        long size = 0L;
+        long modifiedEpochMillis = 0L;
+        try {
+            modifiedEpochMillis = Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toMillis();
+        } catch (Exception ignored) {
+        }
+        if (!directory) {
+            try {
+                size = Files.size(path);
+            } catch (Exception ignored) {
+            }
+        }
         return new TempRecord(
                 path,
                 path.getParent(),
@@ -566,44 +815,7 @@ public final class IndexService {
     }
 
     private boolean loadCacheIfPresent(Path root, Consumer<IndexProgress> progressConsumer) {
-        if (!Files.exists(cachePath)) {
-            return false;
-        }
-        progressConsumer.accept(new IndexProgress(0, 0, true, "loading cached index", "cache"));
-
-        List<TempRecord> temp = new ArrayList<>(250_000);
-        try (BufferedReader reader = new BufferedReader(
-                new java.io.InputStreamReader(new GZIPInputStream(Files.newInputStream(cachePath)), StandardCharsets.UTF_8)
-        )) {
-            String first = reader.readLine();
-            if (first == null || !first.startsWith("#root\t")) {
-                return false;
-            }
-            String cachedRoot = decode(first.substring(6));
-            if (!cachedRoot.equalsIgnoreCase(root.toString())) {
-                return false;
-            }
-
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String[] p = line.split("\\t", 6);
-                if (p.length < 6) {
-                    continue;
-                }
-                Path path = Path.of(decode(p[0]));
-                String parentRaw = decode(p[1]);
-                Path parent = parentRaw.isEmpty() ? null : Path.of(parentRaw);
-                String name = decode(p[2]);
-                String nameLower = name.toLowerCase(Locale.ROOT);
-                boolean directory = "1".equals(p[3]);
-                long size = Long.parseLong(p[4]);
-                long modified = Long.parseLong(p[5]);
-                temp.add(new TempRecord(path, parent, name, nameLower, directory, size, modified));
-            }
-        } catch (Exception e) {
-            return false;
-        }
-
+        List<TempRecord> temp = loadCacheSnapshot(root, progressConsumer);
         if (temp.isEmpty()) {
             return false;
         }
@@ -615,20 +827,99 @@ public final class IndexService {
         return true;
     }
 
+    private List<TempRecord> loadCacheSnapshot(Path root, Consumer<IndexProgress> progressConsumer) {
+        progressConsumer.accept(new IndexProgress(0, 0, true, "loading cached index", "cache"));
+        Path rootCachePath = cachePathForRoot(root);
+
+        List<TempRecord> perRoot = readCacheSnapshot(rootCachePath, root);
+        if (!perRoot.isEmpty()) {
+            return perRoot;
+        }
+
+        List<TempRecord> legacy = readCacheSnapshot(legacyCachePath, root);
+        if (!legacy.isEmpty()) {
+            writeCacheSnapshot(legacy, root);
+            return legacy;
+        }
+        return List.of();
+    }
+
     private void saveCache(List<FileRecord> snapshot, Path root) {
         if (snapshot.isEmpty()) {
             return;
         }
+        List<TempRecord> asTemp = new ArrayList<>(snapshot.size());
+        for (FileRecord r : snapshot) {
+            asTemp.add(new TempRecord(
+                    r.path(),
+                    r.parent(),
+                    r.name(),
+                    r.nameLower(),
+                    r.directory(),
+                    r.size(),
+                    r.modifiedEpochMillis()
+            ));
+        }
+        writeCacheSnapshot(asTemp, root);
+    }
+
+    private List<TempRecord> readCacheSnapshot(Path path, Path expectedRoot) {
+        if (path == null || !Files.exists(path)) {
+            return List.of();
+        }
+
+        List<TempRecord> temp = new ArrayList<>(250_000);
+        try (BufferedReader reader = new BufferedReader(
+                new java.io.InputStreamReader(new GZIPInputStream(Files.newInputStream(path)), StandardCharsets.UTF_8)
+        )) {
+            String first = reader.readLine();
+            if (first == null || !first.startsWith("#root\t")) {
+                return List.of();
+            }
+            String cachedRoot = decode(first.substring(6));
+            if (!cachedRoot.equalsIgnoreCase(expectedRoot.toString())) {
+                return List.of();
+            }
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] p = line.split("\\t", 6);
+                if (p.length < 6) {
+                    continue;
+                }
+                Path recordPath = Path.of(decode(p[0]));
+                String parentRaw = decode(p[1]);
+                Path parent = parentRaw.isEmpty() ? null : Path.of(parentRaw);
+                String name = decode(p[2]);
+                String nameLower = name.toLowerCase(Locale.ROOT);
+                boolean directory = "1".equals(p[3]);
+                long size = Long.parseLong(p[4]);
+                long modified = Long.parseLong(p[5]);
+                temp.add(new TempRecord(recordPath, parent, name, nameLower, directory, size, modified));
+            }
+            return temp;
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private void writeCacheSnapshot(List<TempRecord> snapshot, Path root) {
+        Path target = cachePathForRoot(root);
         try {
-            Files.createDirectories(cachePath.getParent());
+            Files.createDirectories(cacheDir);
             try (BufferedWriter writer = new BufferedWriter(
-                    new java.io.OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(cachePath)), StandardCharsets.UTF_8)
+                    new java.io.OutputStreamWriter(
+                            new GZIPOutputStream(
+                                    Files.newOutputStream(target, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)
+                            ),
+                            StandardCharsets.UTF_8
+                    )
             )) {
                 writer.write("#root\t");
                 writer.write(encode(root.toString()));
                 writer.newLine();
 
-                for (FileRecord r : snapshot) {
+                for (TempRecord r : snapshot) {
                     writer.write(encode(r.path().toString()));
                     writer.write('\t');
                     writer.write(encode(r.parent() == null ? "" : r.parent().toString()));
@@ -645,6 +936,12 @@ public final class IndexService {
             }
         } catch (IOException ignored) {
         }
+    }
+
+    private Path cachePathForRoot(Path root) {
+        String normalizedRoot = normalizedDirKey(root);
+        String encodedRoot = encode(normalizedRoot);
+        return cacheDir.resolve("index-cache-v5-" + encodedRoot + ".tsv.gz");
     }
 
     private List<FileRecord> buildSnapshot(List<TempRecord> harvested) {
@@ -827,6 +1124,12 @@ public final class IndexService {
     private record BuildChunk(
             Map<Path, List<Integer>> childrenByParent,
             Map<Character, List<Integer>> charBuckets
+    ) {
+    }
+
+    private record IncrementalTask(
+            Path directory,
+            boolean allowReuseCheck
     ) {
     }
 }

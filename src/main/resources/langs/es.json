@@ -75,6 +75,15 @@
     "SETTINGS_DONATE_BUTTON": "Support on Ko-fi",
     "SETTINGS_CANCEL": "Cancelar",
     "SETTINGS_SAVE": "Guardar",
-    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "Idioma saved. Reopen settings to see translated labels."
+    "SETTINGS_LANGUAGE_APPLIED_ON_REOPEN": "Idioma saved. Reopen settings to see translated labels.",
+    "SETTINGS_INDEX_MODE": "Index mode:",
+    "SETTINGS_INDEX_MODE_FULL": "Full rebuild",
+    "SETTINGS_INDEX_MODE_INCREMENTAL": "Incremental",
+    "SETTINGS_INCREMENTAL_ON_STARTUP": "Use incremental indexing on startup",
+    "SETTINGS_INDEX_MODE_AUTO": "Auto (recommended)",
+    "SETTINGS_STATUS_PLUGINS_RELOADED": "Plugins reloaded",
+    "SETTINGS_RELOAD_PLUGINS": "Reload plugins",
+    "SETTINGS_PLUGINS": "Plugins",
+    "SETTINGS_WATCH_MODE": "Enable watch mode (live updates)"
   }
 }

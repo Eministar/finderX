@@ -31,8 +31,21 @@ The repository includes automated Windows packaging for:
 
 - App image (`dist\FinderX\`)
 - Installer (`dist\FinderX-Setup-<version>.exe`)
+- Plugin API jar (`dist\FinderX-Plugin-API.jar`)
 
 Version metadata is sourced from `pom.xml`, and signing is supported in the build pipeline.
+
+### One-command release build (PowerShell)
+
+```powershell
+pwsh -File scripts/build-release.ps1
+```
+
+Useful flags:
+
+- `-NoSign` disable code signing
+- `-SkipApi` skip Plugin API jar build
+- `-SkipInstaller` build only API jar
 
 ## Updates
 
